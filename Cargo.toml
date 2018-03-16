@@ -4,3 +4,14 @@ version = "0.1.0"
 authors = ["Hiroki Teranishi <teranishihiroki@gmail.com>"]
 
 [dependencies]
+primitiv = { version = "0.3", optional = true }
+
+[features]
+syntax = []
+dataset-conll = []
+models = ["primitiv"]
+
+[[example]]
+name = "tagger"
+path = "examples/tagger/tagger.rs"
+required-features = ["dataset-conll", "models"]

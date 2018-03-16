@@ -1,6 +1,7 @@
 pub(crate) use self::rcstring::RcString;
 pub use self::simple::*;
 
+pub mod prelude;
 mod rcstring;
 mod simple;
 
