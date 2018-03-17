@@ -92,6 +92,10 @@ impl<T: Tokenized> Phrasal for Sentence<T> {
     fn token(&self, index: usize) -> Option<&Self::Token> {
         self.tokens.get(index)
     }
+
+    fn tokens(&self) -> &Vec<Self::Token> {
+        &self.tokens
+    }
 }
 
 impl<T: Tokenized> Index<usize> for Sentence<T> {
