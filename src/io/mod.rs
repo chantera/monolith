@@ -17,6 +17,10 @@ pub trait Read {
     fn read_upto(&mut self, num: usize, buf: &mut Vec<Self::Item>) -> io::Result<usize>;
 }
 
+pub trait FileOpen: Sized {
+    fn open<P: AsRef<Path>>(path: P) -> io::Result<Self>;
+}
+
 pub trait FromLine: Sized {
     type Err: Into<Box<error::Error + Send + Sync>>;
 
@@ -48,12 +52,6 @@ impl<R: io::Read, T> Reader<R, T> {
     }
 }
 
-impl<T> Reader<io::BufReader<File>, T> {
-    pub fn open<P: AsRef<Path>>(path: P) -> io::Result<Self> {
-        Ok(Self::new(io::BufReader::new(File::open(path)?)))
-    }
-}
-
 impl<R: io::Seek, T> io::Seek for Reader<R, T> {
     fn seek(&mut self, pos: io::SeekFrom) -> io::Result<u64> {
         self.inner.seek(pos)
@@ -65,6 +63,12 @@ impl<R: io::BufRead, T: FromLine> Read for Reader<R, T> {
 
     fn read_upto(&mut self, num: usize, buf: &mut Vec<Self::Item>) -> io::Result<usize> {
         read_upto(&mut self.inner, num, buf)
+    }
+}
+
+impl<T> FileOpen for Reader<io::BufReader<File>, T> {
+    fn open<P: AsRef<Path>>(path: P) -> io::Result<Self> {
+        Ok(Self::new(io::BufReader::new(File::open(path)?)))
     }
 }
 
@@ -91,3 +95,5 @@ pub fn read_upto<R: io::BufRead, T: FromLine>(
     }
     Ok(count)
 }
+
+pub type BufFileReader<T> = Reader<io::BufReader<File>, T>;

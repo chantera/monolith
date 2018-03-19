@@ -6,6 +6,10 @@ authors = ["Hiroki Teranishi <teranishihiroki@gmail.com>"]
 [dependencies]
 primitiv = { version = "0.3", optional = true }
 
+[dev-dependencies]
+clap = "2.31"
+tempfile = "2.2"
+
 [features]
 syntax = []
 dataset-conll = []
