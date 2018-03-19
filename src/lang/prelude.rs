@@ -1,1 +1,1 @@
-pub use super::{Phrasal, Tokenized};
+pub use super::{Phrasal, Sentence, Token, Tokenized};
