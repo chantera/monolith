@@ -5,6 +5,7 @@ authors = ["Hiroki Teranishi <teranishihiroki@gmail.com>"]
 
 [dependencies]
 primitiv = { version = "0.3", optional = true }
+rand = "0.4"
 
 [dev-dependencies]
 clap = "2.31"

@@ -1,6 +1,9 @@
+extern crate rand;
+
 // #[cfg(feature = "models")]
 // extern crate primitiv_sys;
 
+#[macro_use]
 pub mod dataset;
 pub mod io;
 pub mod lang;

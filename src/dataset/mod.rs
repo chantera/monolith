@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+use std::cmp::min;
 use std::io::Result as IOResult;
 use std::marker::PhantomData;
 use std::ops;
@@ -5,11 +7,55 @@ use std::path::Path;
 use std::slice::Iter;
 use std::usize::MAX as USIZE_MAX;
 
+use rand::{Rng, thread_rng, ThreadRng};
+
 use io::{BufFileReader, FileOpen, Read};
 use preprocessing::Preprocess;
 
 #[cfg(feature = "dataset-conll")]
 pub mod conll;
+
+thread_local!(static rng: RefCell<ThreadRng> = RefCell::new(thread_rng()));
+
+pub struct Batches<'a, T: 'a> {
+    batch_size: usize,
+    offset: usize,
+    samples: &'a [T],
+    n_samples: usize,
+    indices: Vec<usize>,
+}
+
+impl<'a, T> Iterator for Batches<'a, T> {
+    type Item = Vec<&'a T>;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.offset < self.n_samples {
+            let batch_indices =
+                &self.indices[self.offset..min(self.offset + self.batch_size, self.n_samples)];
+            let batch: Vec<&'a T> = batch_indices
+                .iter()
+                .map(|&index| &self.samples[index])
+                .collect();
+            self.offset += self.batch_size;
+            Some(batch)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remain = self.n_samples - self.offset;
+        let bound = (remain as f64 / self.batch_size as f64).ceil() as usize;
+        (bound, Some(bound))
+    }
+
+    #[inline]
+    fn count(self) -> usize {
+        (self.n_samples as f64 / self.batch_size as f64).ceil() as usize
+    }
+}
 
 #[derive(Debug)]
 pub struct Dataset<T> {
@@ -29,8 +75,19 @@ impl<T> Dataset<T> {
         Dataset { items: Vec::with_capacity(capacity) }
     }
 
-    // pub fn batches(size: usize, shuffle: bool) -> Batches {}
-    // TODO: implement
+    pub fn batch<'a>(&'a self, size: usize, shuffle: bool) -> Batches<'a, T> {
+        let mut indices = (0..self.items.len()).collect::<Vec<_>>();
+        if shuffle {
+            rng.with(|cell| cell.borrow_mut().shuffle(&mut indices));
+        }
+        Batches {
+            batch_size: size,
+            offset: 0,
+            samples: &self.items,
+            n_samples: self.items.len(),
+            indices: indices,
+        }
+    }
 
     pub fn len(&self) -> usize {
         self.items.len()
@@ -119,6 +176,30 @@ impl<T> ops::IndexMut<ops::RangeFull> for Dataset<T> {
     fn index_mut(&mut self, _index: ops::RangeFull) -> &mut [T] {
         &mut self.items
     }
+}
+
+#[macro_export]
+macro_rules! take_cols {
+    (($($name:ident:$col:tt),+); $var:ident, $cap:expr) => {
+        $(
+            let mut $name = Vec::with_capacity($cap);
+        )+
+        for entry in $var.into_iter() {
+            $(
+                $name.push(&entry.$col);
+            )+
+        }
+    };
+    (($($name:ident:$col:tt),+); $var:ident) => {
+        $(
+            let mut $name = Vec::new();
+        )+
+        for entry in $var.into_iter() {
+            $(
+                $name.push(&entry.$col);
+            )+
+        }
+    };
 }
 
 pub trait Load {
