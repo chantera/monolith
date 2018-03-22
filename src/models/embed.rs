@@ -1,21 +1,27 @@
+use std::marker::PhantomData;
+
 use primitiv::Initializer;
 use primitiv::Model;
-use primitiv::Node;
 use primitiv::Parameter;
 use primitiv::initializers as I;
 use primitiv::functions as F;
 
 #[derive(Debug)]
-pub struct Embed {
+pub struct Embed<Var> {
     model: Model,
     lookup: Parameter,
+    _phantom: PhantomData<Var>,
 }
 
-impl Embed {
+impl<Var: AsRef<Var>> Embed<Var>
+where
+    F::FuncImpls<Var>: F::Functions<Var>,
+{
     pub fn new() -> Self {
         let mut m = Embed {
             model: Model::new(),
             lookup: Parameter::new(),
+            _phantom: PhantomData,
         };
         m.model.add_parameter("lookup", &mut m.lookup);
         m
@@ -55,31 +61,17 @@ impl Embed {
         );
     }
 
-    pub fn forward<Batch, IDs>(&mut self, xs: Batch) -> Vec<Node>
+    pub fn forward<Batch, IDs>(&mut self, xs: Batch) -> Vec<Var>
     where
         Batch: AsRef<[IDs]>,
         IDs: AsRef<[u32]>,
     {
-        let lookup = F::parameter::<Node>(&mut self.lookup);
+        let lookup = F::parameter::<Var>(&mut self.lookup);
         xs.as_ref()
             .iter()
             .map(|x| F::pick(&lookup, x.as_ref(), 1))
             .collect()
     }
-
-    pub fn forward_with_dropout<Batch, IDs>(&mut self, xs: Batch, dropout: f32) -> Vec<Node>
-    where
-        Batch: AsRef<[IDs]>,
-        IDs: AsRef<[u32]>,
-    {
-        let lookup = F::parameter::<Node>(&mut self.lookup);
-        xs.as_ref()
-            .iter()
-            .map(|x| {
-                F::dropout(F::pick(&lookup, x.as_ref(), 1), dropout, true)
-            })
-            .collect()
-    }
 }
 
-impl_model!(Embed, model);
+impl_model!(Embed, model, Var);

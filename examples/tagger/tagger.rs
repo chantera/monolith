@@ -10,6 +10,7 @@ use std::path::Path;
 use std::process::exit;
 use std::result::Result;
 
+use monolith::dataset::transpose_sequence;
 use monolith::preprocessing::Vocab;
 use primitiv::*;
 
@@ -30,8 +31,8 @@ fn train<P: AsRef<Path>>(
     let mut loader = Loader::new(Preprocessor::new(Vocab::new()));
     let train_dataset = loader.load(train_file)?;
 
-    let mut model = Tagger::new();
-    model.init(10000, 100, 200, 32);
+    let mut model = Tagger::new(0.5);
+    model.init(10000, 100, 200, 32, 400);
 
     let mut optimizer = optimizers::Adam::default();
     optimizer.set_weight_decay(1e-6);
@@ -42,9 +43,17 @@ fn train<P: AsRef<Path>>(
     Graph::set_default(&mut g);
 
     for epoch in 1..n_epoch + 1 {
-        for batch in train_dataset.batch(batch_size, true) {
+        for mut batch in train_dataset.batch(batch_size, true) {
+            sort_batch!(batch);
             take_cols!((words:0, chars:1, postags:2); batch, batch_size);
-            let ys = model.forward(words, chars);
+            // transpose!(words, chars, postags);
+            let words = transpose_sequence(words, Some(0));
+            transpose!(chars, postags);
+            // println!("graph: {}", g.dump("dot"));
+            g.clear();
+            let ys = model.forward(words, chars, true);
+
+            optimizer.reset_gradients();
             // let loss = model.loss(ys, postags);
             // loss.backward();
         }

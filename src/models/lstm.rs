@@ -1,10 +1,8 @@
-use std::iter::Map;
-
 use primitiv::Model;
 use primitiv::Node;
 use primitiv::Parameter;
 use primitiv::initializers as I;
-use primitiv::functions as F;
+use primitiv::node_functions as F;
 
 /// Hand-written LSTM with input/forget/output gates and no peepholes.
 /// Formulation:
@@ -53,7 +51,7 @@ impl LSTM {
     }
 
     /// Initializes internal values.
-    pub fn restart(&mut self, init_c: Option<&Node>, init_h: Option<&Node>) {
+    pub fn reset(&mut self, init_c: Option<&Node>, init_h: Option<&Node>) {
         let out_size = self.pw.shape().at(0) / 4;
         self.w = F::parameter(&mut self.pw);
         self.b = F::parameter(&mut self.pb);
@@ -67,7 +65,27 @@ impl LSTM {
 
     /// One step forwarding.
     pub fn forward<N: AsRef<Node>>(&mut self, x: N) -> &Node {
-        let u = F::matmul(&self.w, F::concat(&vec![x.as_ref(), &self.h], 0)) + &self.b;
+        let x = x.as_ref();
+        let (lstm_in, _h_rest): (Node, Option<Node>) = {
+            let prev_batch = self.h.shape().batch();
+            if prev_batch > 1 {
+                let batch = x.shape().batch();
+                if batch > prev_batch {
+                    panic!(
+                        "batch size must be smaller than the initial batch size: x.shape: {}, lstm.h.shape: {}",
+                        x.shape(),
+                        self.h.shape()
+                    );
+                } else if batch < prev_batch {
+                    panic!("Not Implemented.")
+                } else {
+                    (F::concat(&vec![x, &self.h], 0), None)
+                }
+            } else {
+                (F::concat(&vec![x, &self.h], 0), None)
+            }
+        };
+        let u = F::matmul(&self.w, lstm_in) + &self.b;
         let v = F::split(u, 0, 4);
         let i = F::sigmoid(&v[0]);
         let f = F::sigmoid(&v[1]);
@@ -78,12 +96,29 @@ impl LSTM {
         &self.h
     }
 
+    pub fn initialized(&self) -> bool {
+        self.pw.valid()
+    }
+
+    pub fn ready(&self) -> bool {
+        self.w.valid()
+    }
+
     pub fn get_c(&self) -> &Node {
         &self.c
     }
 
     pub fn get_h(&self) -> &Node {
         &self.h
+    }
+
+    pub fn input_size(&self) -> u32 {
+        let s = self.pw.shape();
+        s.at(1) - s.at(0) / 4
+    }
+
+    pub fn output_size(&self) -> u32 {
+        self.pw.shape().at(0) / 4
     }
 }
 
@@ -117,17 +152,19 @@ impl BiLSTM {
     /// Initializes the model.
     pub fn init(&mut self, in_size: u32, out_size: u32) {
         let mut iter = self.lstms.iter_mut();
-        let &mut (ref mut first_f, ref mut first_b) = iter.next().unwrap();
-        first_f.init(in_size, out_size);
-        first_b.init(in_size, out_size);
+        {
+            let &mut (ref mut lstm_f, ref mut lstm_b) = iter.next().unwrap();
+            lstm_f.init(in_size, out_size);
+            lstm_b.init(in_size, out_size);
+        }
         for &mut (ref mut lstm_f, ref mut lstm_b) in iter {
-            lstm_f.init(in_size * 2, out_size);
-            lstm_b.init(in_size * 2, out_size);
+            lstm_f.init(out_size * 2, out_size);
+            lstm_b.init(out_size * 2, out_size);
         }
     }
 
     /// Initializes internal values.
-    pub fn restart(&mut self, init_states: Option<Vec<(Option<&Node>, Option<&Node>)>>) {
+    pub fn reset(&mut self, init_states: Option<Vec<(Option<&Node>, Option<&Node>)>>) {
         let num_layers = self.lstms.len() * 2;
         let mut states = init_states.unwrap_or(vec![]);
         assert!(states.len() <= num_layers);
@@ -137,14 +174,15 @@ impl BiLSTM {
         for (i, (c, h)) in states.into_iter().enumerate() {
             let (ref mut lstm_f, ref mut lstm_b) = self.lstms[i / 2];
             if i % 2 == 0 {
-                lstm_f.restart(c, h);
+                lstm_f.reset(c, h);
             } else {
-                lstm_b.restart(c, h);
+                lstm_b.reset(c, h);
             }
         }
     }
 
     pub fn forward(&mut self, xs: &[Node], train: bool) -> Vec<Node> {
+        assert!(self.initialized() && self.ready());
         let mut iter = self.lstms.iter_mut();
         let hs = {
             let &mut (ref mut lstm_f, ref mut lstm_b) = iter.next().unwrap();
@@ -175,6 +213,32 @@ impl BiLSTM {
             xs_next = hs;
         }
         xs_next
+    }
+
+    pub fn initialized(&self) -> bool {
+        self.lstms[0].0.initialized()
+    }
+
+    pub fn ready(&self) -> bool {
+        self.lstms[0].0.ready()
+    }
+
+    // TODO: implement
+    // pub fn get_c(&self) -> &Node {
+    //     &self.c
+    // }
+
+    // TODO: implement
+    // pub fn get_h(&self) -> &Node {
+    //     &self.h
+    // }
+
+    pub fn input_size(&self) -> u32 {
+        self.lstms[0].0.input_size()
+    }
+
+    pub fn output_size(&self) -> u32 {
+        self.lstms[0].0.output_size() * 2
     }
 }
 

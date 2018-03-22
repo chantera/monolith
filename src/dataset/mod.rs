@@ -15,7 +15,7 @@ use preprocessing::Preprocess;
 #[cfg(feature = "dataset-conll")]
 pub mod conll;
 
-thread_local!(static rng: RefCell<ThreadRng> = RefCell::new(thread_rng()));
+thread_local!(static RNG: RefCell<ThreadRng> = RefCell::new(thread_rng()));
 
 pub struct Batches<'a, T: 'a> {
     batch_size: usize,
@@ -78,7 +78,7 @@ impl<T> Dataset<T> {
     pub fn batch<'a>(&'a self, size: usize, shuffle: bool) -> Batches<'a, T> {
         let mut indices = (0..self.items.len()).collect::<Vec<_>>();
         if shuffle {
-            rng.with(|cell| cell.borrow_mut().shuffle(&mut indices));
+            RNG.with(|cell| cell.borrow_mut().shuffle(&mut indices));
         }
         Batches {
             batch_size: size,
@@ -179,6 +179,16 @@ impl<T> ops::IndexMut<ops::RangeFull> for Dataset<T> {
 }
 
 #[macro_export]
+macro_rules! sort_batch {
+    ($var:ident, $col:tt) => {
+        $var.sort_by(|a, b| b.$col.len().cmp(&a.$col.len()));
+    };
+    ($var:ident) => {
+        sort_batch!($var, 0);
+    };
+}
+
+#[macro_export]
 macro_rules! take_cols {
     (($($name:ident:$col:tt),+); $var:ident, $cap:expr) => {
         $(
@@ -200,6 +210,44 @@ macro_rules! take_cols {
             )+
         }
     };
+}
+
+#[macro_export]
+macro_rules! transpose {
+    ($($var:ident),+) => {
+        $(
+            let $var = monolith::dataset::transpose_sequence($var, None);
+        )+
+    };
+}
+
+pub fn transpose_sequence<Batch, Seq, T: Clone>(xs: Batch, pad: Option<T>) -> Vec<Vec<T>>
+where
+    Batch: AsRef<[Seq]>,
+    Seq: AsRef<[T]>,
+{
+    let batch_size = xs.as_ref().len();
+    let max_len = xs.as_ref()[0].as_ref().len();
+    match pad {
+        Some(p) => {
+            let mut ys = vec![vec![p; batch_size]; max_len];
+            for (sample_idx, x) in xs.as_ref().iter().enumerate() {
+                for (t, x_t) in x.as_ref().iter().enumerate() {
+                    ys[t][sample_idx] = x_t.clone();
+                }
+            }
+            ys
+        }
+        None => {
+            let mut ys = vec![Vec::with_capacity(batch_size); max_len];
+            for x in xs.as_ref().iter() {
+                for (t, x_t) in x.as_ref().iter().enumerate() {
+                    ys[t].push(x_t.clone());
+                }
+            }
+            ys
+        }
+    }
 }
 
 pub trait Load {
