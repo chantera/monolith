@@ -1,27 +1,21 @@
-use std::marker::PhantomData;
-
 use primitiv::Initializer;
 use primitiv::Model;
+use primitiv::Node;
 use primitiv::Parameter;
 use primitiv::initializers as I;
-use primitiv::functions as F;
+use primitiv::node_functions as F;
 
 #[derive(Debug)]
-pub struct Embed<Var> {
+pub struct Embed {
     model: Model,
     lookup: Parameter,
-    _phantom: PhantomData<Var>,
 }
 
-impl<Var: AsRef<Var>> Embed<Var>
-where
-    F::FuncImpls<Var>: F::Functions<Var>,
-{
+impl Embed {
     pub fn new() -> Self {
         let mut m = Embed {
             model: Model::new(),
             lookup: Parameter::new(),
-            _phantom: PhantomData,
         };
         m.model.add_parameter("lookup", &mut m.lookup);
         m
@@ -61,12 +55,12 @@ where
         );
     }
 
-    pub fn forward<Batch, IDs>(&mut self, xs: Batch) -> Vec<Var>
+    pub fn forward<Batch, IDs>(&mut self, xs: Batch) -> Vec<Node>
     where
         Batch: AsRef<[IDs]>,
         IDs: AsRef<[u32]>,
     {
-        let lookup = F::parameter::<Var>(&mut self.lookup);
+        let lookup = F::parameter(&mut self.lookup);
         xs.as_ref()
             .iter()
             .map(|x| F::pick(&lookup, x.as_ref(), 1))
@@ -74,4 +68,4 @@ where
     }
 }
 
-impl_model!(Embed, model, Var);
+impl_model!(Embed, model);

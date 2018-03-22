@@ -5,8 +5,8 @@ use primitiv::Model;
 
 pub struct Tagger {
     model: Model,
-    word_embed: Embed<Node>,
-    char_embed: Embed<Node>,
+    word_embed: Embed,
+    char_embed: Embed,
     bilstm: BiLSTM,
     // mlp: MLP,
     dropout_rate: f32,
