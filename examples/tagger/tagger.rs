@@ -32,7 +32,7 @@ fn train<P: AsRef<Path>>(
     let train_dataset = loader.load(train_file)?;
 
     let mut model = Tagger::new(0.5);
-    model.init(10000, 100, 200, 32, 400, 100, 32);
+    model.init(10000, 100, 200, 32, 400, 100, 64);
 
     let mut optimizer = optimizers::Adam::default();
     optimizer.set_weight_decay(1e-6);
@@ -43,19 +43,20 @@ fn train<P: AsRef<Path>>(
     Graph::set_default(&mut g);
 
     for epoch in 1..n_epoch + 1 {
+        let mut train_loss = 0.0;
         for mut batch in train_dataset.batch(batch_size, true) {
             sort_batch!(batch);
             take_cols!((words:0, chars:1, postags:2); batch, batch_size);
             // transpose!(words, chars, postags);
             let words = transpose_sequence(words, Some(0));
-            transpose!(chars, postags);
-            // println!("graph: {}", g.dump("dot"));
+            let postags = transpose_sequence(postags, Some(0));
             g.clear();
             let ys = model.forward(words, chars, true);
 
             optimizer.reset_gradients();
-            // let loss = model.loss(ys, postags);
-            // loss.backward();
+            let loss = model.loss(&ys, postags);
+            train_loss += loss.to_float();
+            loss.backward();
         }
     }
     Ok(())

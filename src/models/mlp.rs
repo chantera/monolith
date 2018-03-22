@@ -91,3 +91,5 @@ impl MLP {
         h
     }
 }
+
+impl_model!(MLP, model);

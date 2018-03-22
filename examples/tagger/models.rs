@@ -70,6 +70,19 @@ impl Tagger {
         let ys = hs.into_iter().map(|h| self.mlp.forward(h, train)).collect();
         ys
     }
+
+    pub fn loss<PosBatch, PosIDs>(&mut self, ys: &[Node], ts: PosBatch) -> Node
+    where
+        PosBatch: AsRef<[PosIDs]>,
+        PosIDs: AsRef<[u32]>,
+    {
+        let losses: Vec<Node> = ts.as_ref()
+            .iter()
+            .zip(ys)
+            .map(|(t, y)| F::softmax_cross_entropy_with_ids(y, t.as_ref(), 0))
+            .collect();
+        F::batch::mean(F::sum_nodes(&losses))
+    }
 }
 
 impl_model!(Tagger, model);
