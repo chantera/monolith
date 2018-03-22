@@ -12,6 +12,7 @@ use primitiv::node_functions as F;
 ///   j = tanh   (W_xj . x[t] + W_hj . h[t-1] + b_j)
 ///   c[t] = i * j + f * c[t-1]
 ///   h[t] = o * tanh(c[t])
+#[derive(Debug)]
 pub struct LSTM {
     model: Model,
     pw: Parameter,
@@ -124,6 +125,7 @@ impl LSTM {
 
 impl_model!(LSTM, model);
 
+#[derive(Debug)]
 pub struct BiLSTM {
     model: Model,
     lstms: Vec<(LSTM, LSTM)>,
@@ -138,8 +140,8 @@ impl BiLSTM {
         for i in 0..n_layers {
             let mut f_lstm = LSTM::new();
             let mut b_lstm = LSTM::new();
-            model.add_submodel(&format!("f_lstm.{}", i), &mut f_lstm);
-            model.add_submodel(&format!("b_lstm.{}", i), &mut b_lstm);
+            model.add_submodel(&format!("{}.f_lstm", i), &mut f_lstm);
+            model.add_submodel(&format!("{}.b_lstm", i), &mut b_lstm);
             lstms.push((f_lstm, b_lstm));
         }
         BiLSTM {

@@ -32,7 +32,7 @@ fn train<P: AsRef<Path>>(
     let train_dataset = loader.load(train_file)?;
 
     let mut model = Tagger::new(0.5);
-    model.init(10000, 100, 200, 32, 400);
+    model.init(10000, 100, 200, 32, 400, 100, 32);
 
     let mut optimizer = optimizers::Adam::default();
     optimizer.set_weight_decay(1e-6);

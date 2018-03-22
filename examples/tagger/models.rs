@@ -8,7 +8,7 @@ pub struct Tagger {
     word_embed: Embed,
     char_embed: Embed,
     bilstm: BiLSTM,
-    // mlp: MLP,
+    mlp: MLP,
     dropout_rate: f32,
 }
 
@@ -19,6 +19,7 @@ impl Tagger {
             word_embed: Embed::new(),
             char_embed: Embed::new(),
             bilstm: BiLSTM::new(2, dropout),
+            mlp: MLP::new(2, Activate::Relu, dropout),
             dropout_rate: dropout,
         };
         m.model.add_submodel("word_embed", &mut m.word_embed);
@@ -33,16 +34,22 @@ impl Tagger {
         char_vocab_size: usize,
         char_embed_size: u32,
         lstm_hidden_size: u32,
+        mlp_unit: u32,
+        out_size: usize,
     ) {
         self.word_embed.init(word_vocab_size, word_embed_size);
         self.char_embed.init(char_vocab_size, char_embed_size);
         self.bilstm.init(word_embed_size, lstm_hidden_size);
+        self.mlp.init(
+            &[lstm_hidden_size * 2, mlp_unit],
+            out_size as u32,
+        );
     }
 
     pub fn forward<WordBatch, CharsBatch, Chars, WordIDs, CharIDs>(
         &mut self,
         words: WordBatch,
-        chars: CharsBatch,
+        _chars: CharsBatch,
         train: bool,
     ) -> Vec<Node>
     where
@@ -60,7 +67,8 @@ impl Tagger {
         }
         self.bilstm.reset(None);
         let hs = self.bilstm.forward(&xs, train);
-        hs
+        let ys = hs.into_iter().map(|h| self.mlp.forward(h, train)).collect();
+        ys
     }
 }
 
