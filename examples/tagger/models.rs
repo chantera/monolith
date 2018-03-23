@@ -3,6 +3,7 @@ use primitiv::node_functions as F;
 use primitiv::Node;
 use primitiv::Model;
 
+#[derive(Debug)]
 pub struct Tagger {
     model: Model,
     word_embed: Embed,
@@ -86,3 +87,79 @@ impl Tagger {
 }
 
 impl_model!(Tagger, model);
+
+#[derive(Debug)]
+pub struct TaggerBuilder {
+    dropout_rate: f32,
+    word_vocab_size: usize,
+    word_embed_size: u32,
+    char_vocab_size: usize,
+    char_embed_size: u32,
+    lstm_hidden_size: u32,
+    mlp_unit: u32,
+    out_size: Option<usize>,
+}
+
+impl TaggerBuilder {
+    pub fn new() -> Self {
+        TaggerBuilder {
+            dropout_rate: 0.5,
+            word_vocab_size: 60000,
+            word_embed_size: 100,
+            char_vocab_size: 128,
+            char_embed_size: 32,
+            lstm_hidden_size: 200,
+            mlp_unit: 200,
+            out_size: None,
+        }
+    }
+
+    pub fn build(self) -> Tagger {
+        if self.out_size.is_none() {
+            panic!("out_size must be set before builder.build() is called.");
+        }
+        let mut tagger = Tagger::new(self.dropout_rate);
+        tagger.init(
+            self.word_vocab_size,
+            self.word_embed_size,
+            self.char_vocab_size,
+            self.char_embed_size,
+            self.lstm_hidden_size,
+            self.mlp_unit,
+            self.out_size.unwrap(),
+        );
+        tagger
+    }
+
+    pub fn word(mut self, vocab_size: usize, embed_size: u32) -> Self {
+        self.word_vocab_size = vocab_size;
+        self.word_embed_size = embed_size;
+        self
+    }
+
+    pub fn char(mut self, vocab_size: usize, embed_size: u32) -> Self {
+        self.char_vocab_size = vocab_size;
+        self.char_embed_size = embed_size;
+        self
+    }
+
+    pub fn dropout(mut self, p: f32) -> Self {
+        self.dropout_rate = p;
+        self
+    }
+
+    pub fn lstm(mut self, hidden_size: u32) -> Self {
+        self.lstm_hidden_size = hidden_size;
+        self
+    }
+
+    pub fn mlp(mut self, unit: u32) -> Self {
+        self.mlp_unit = unit;
+        self
+    }
+
+    pub fn out(mut self, size: usize) -> Self {
+        self.out_size = Some(size);
+        self
+    }
+}

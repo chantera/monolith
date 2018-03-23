@@ -31,8 +31,14 @@ fn train<P: AsRef<Path>>(
     let mut loader = Loader::new(Preprocessor::new(Vocab::new()));
     let train_dataset = loader.load(train_file)?;
 
-    let mut model = Tagger::new(0.5);
-    model.init(10000, 100, 200, 32, 400, 100, 64);
+    let mut model = TaggerBuilder::new()
+        .word(10000, 100)
+        .char(200, 32)
+        .lstm(400)
+        .mlp(100)
+        .dropout(0.5)
+        .out(64)
+        .build();
 
     let mut optimizer = optimizers::Adam::default();
     optimizer.set_weight_decay(1e-6);
