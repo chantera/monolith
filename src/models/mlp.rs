@@ -25,11 +25,11 @@ pub enum Activate {
 fn activate<N: AsRef<Node>>(activate: Activate, x: N) -> Node {
     let x = x.as_ref();
     match activate {
-        Sigmoid => F::sigmoid(x),
-        Tanh => F::sigmoid(x),
-        Relu => F::sigmoid(x),
-        Softmax => F::sigmoid(x),
-        Linear => x.clone(),
+        Activate::Sigmoid => F::sigmoid(x),
+        Activate::Tanh => F::tanh(x),
+        Activate::Relu => F::relu(x),
+        Activate::Softmax => F::softmax(x, 0),
+        Activate::Linear => x.clone(),
     }
 }
 
