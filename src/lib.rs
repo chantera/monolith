@@ -1,5 +1,12 @@
 extern crate rand;
 
+#[cfg(feature = "logging")]
+extern crate slog;
+#[cfg(feature = "logging")]
+extern crate slog_async;
+#[cfg(feature = "logging")]
+extern crate slog_term;
+
 #[cfg(feature = "models")]
 #[macro_use]
 extern crate primitiv;
@@ -8,6 +15,8 @@ extern crate primitiv;
 pub mod dataset;
 pub mod io;
 pub mod lang;
+#[cfg(feature = "logging")]
+pub mod logging;
 #[cfg(feature = "models")]
 pub mod models;
 pub mod preprocessing;

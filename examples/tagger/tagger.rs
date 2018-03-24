@@ -4,15 +4,18 @@ extern crate clap;
 extern crate monolith;
 #[macro_use]
 extern crate primitiv;
+#[macro_use]
+extern crate slog;
 
 use std::error::Error;
 use std::path::Path;
-use std::process::exit;
 use std::result::Result;
 
 use monolith::dataset::transpose_sequence;
+use monolith::logging::{LoggerBuilder, Stream};
 use monolith::preprocessing::Vocab;
 use primitiv::*;
+use slog::Logger;
 
 use self::dataset::*;
 use self::models::*;
@@ -21,9 +24,10 @@ mod models;
 
 fn train<P: AsRef<Path>>(
     train_file: P,
-    valid_file: Option<P>,
+    _valid_file: Option<P>,
     n_epoch: u32,
     batch_size: usize,
+    logger: &Logger,
 ) -> Result<(), Box<Error>> {
     let mut dev = devices::Naive::new(); // let mut dev = D::CUDA::new(0);
     devices::set_default(&mut dev);
@@ -49,6 +53,7 @@ fn train<P: AsRef<Path>>(
     Graph::set_default(&mut g);
 
     for epoch in 1..n_epoch + 1 {
+        info!(logger, "epoch: {}", epoch);
         let mut train_loss = 0.0;
         for mut batch in train_dataset.batch(batch_size, true) {
             sort_batch!(batch);
@@ -64,11 +69,12 @@ fn train<P: AsRef<Path>>(
             train_loss += loss.to_float();
             loss.backward();
         }
+        info!(logger, "batch loss: {}", train_loss);
     }
     Ok(())
 }
 
-fn test<P: AsRef<Path>>(file: P) -> Result<(), Box<Error>> {
+fn test<P: AsRef<Path>>(_file: P) -> Result<(), Box<Error>> {
     Ok(())
 }
 
@@ -86,10 +92,21 @@ fn main() {
         )
     ).get_matches();
 
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open("target/your_log_file_path.log")
+        .unwrap();
+    let logger =
+        LoggerBuilder::new(Stream::StdOut).build_with(LoggerBuilder::new(Stream::File(file)), o!());
+    info!(logger, "info");
+    warn!(logger, "hello world");
+
     let result = match matches.subcommand() {
         ("train", Some(m)) => {
             println!("train with a file: {}", m.value_of("INPUT").unwrap());
-            train(m.value_of("INPUT").unwrap(), None, 20, 32)
+            train(m.value_of("INPUT").unwrap(), None, 20, 32, &logger)
         }
         ("test", Some(m)) => {
             println!("test with a file: {}", m.value_of("INPUT").unwrap());
@@ -98,11 +115,12 @@ fn main() {
         _ => unreachable!(),
     };
 
-    exit(match result {
+    let _exit_code = match result {
         Ok(_) => 0,
         Err(e) => {
             println!("{}", e);
             1
         }
-    })
+    };
+    // std::process::exit(exit_code);
 }
