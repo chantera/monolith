@@ -36,10 +36,6 @@ impl Callback for Reporter {
             info.loss.unwrap(),
         );
     }
-
-    fn on_batch_begin(&mut self, info: &TrainingInfo) {
-        info!(self.logger, "batch begin");
-    }
 }
 
 pub struct ProgressBar<W: Write> {
@@ -74,7 +70,7 @@ impl Callback for ProgressBar<Stdout> {
         self.add(info.batch_size.unwrap() as u64);
     }
 
-    fn on_epoch_train_end(&mut self, info: &TrainingInfo) {
+    fn on_epoch_train_end(&mut self, _info: &TrainingInfo) {
         self.finish();
     }
 }
@@ -89,7 +85,7 @@ impl Callback for ProgressBar<Stderr> {
         self.add(info.batch_size.unwrap() as u64);
     }
 
-    fn on_epoch_train_end(&mut self, info: &TrainingInfo) {
+    fn on_epoch_train_end(&mut self, _info: &TrainingInfo) {
         self.finish();
     }
 }

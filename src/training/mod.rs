@@ -1,12 +1,10 @@
 use std::io::Stdout;
 use std::marker::PhantomData;
 
-use pbr::ProgressBar;
 use primitiv::{Graph, Node, Optimizer};
 use slog::Logger;
 
 use dataset::Dataset;
-use logging::{LoggerBuilder, Stream};
 
 pub mod callbacks;
 
@@ -53,16 +51,13 @@ where
             self.notify(Event::EpochBegin, &train_info);
 
             self.process_batches(&mut g, &train_dataset, batch_size, &mut train_info);
-            self.notify(Event::EpochTrainEnd, &train_info);
-
             if let Some(ref v_data) = valid_dataset {
                 let mut valid_info = TrainingInfo::new(n_epochs, v_data.len());
                 valid_info.epoch = epoch;
                 valid_info.train = false;
-                self.notify(Event::EpochValidateBegin, &train_info);
                 self.process_batches(&mut g, v_data, batch_size, &mut valid_info);
-                self.notify(Event::EpochValidateEnd, &train_info);
             }
+
             self.notify(Event::EpochEnd, &train_info);
         }
 
@@ -257,15 +252,25 @@ enum Event {
 }
 
 pub trait Callback {
+    #[allow(unused_variables)]
     fn on_train_begin(&mut self, info: &TrainingInfo) {}
+    #[allow(unused_variables)]
     fn on_train_end(&mut self, info: &TrainingInfo) {}
+    #[allow(unused_variables)]
     fn on_epoch_begin(&mut self, info: &TrainingInfo) {}
+    #[allow(unused_variables)]
     fn on_epoch_end(&mut self, info: &TrainingInfo) {}
+    #[allow(unused_variables)]
     fn on_epoch_train_begin(&mut self, info: &TrainingInfo) {}
+    #[allow(unused_variables)]
     fn on_epoch_train_end(&mut self, info: &TrainingInfo) {}
+    #[allow(unused_variables)]
     fn on_epoch_validate_begin(&mut self, info: &TrainingInfo) {}
+    #[allow(unused_variables)]
     fn on_epoch_validate_end(&mut self, info: &TrainingInfo) {}
+    #[allow(unused_variables)]
     fn on_batch_begin(&mut self, info: &TrainingInfo) {}
+    #[allow(unused_variables)]
     fn on_batch_end(&mut self, info: &TrainingInfo) {}
 }
 

@@ -20,8 +20,10 @@ use slog::Logger;
 
 use self::dataset::*;
 use self::models::*;
+use self::utils::*;
 mod dataset;
 mod models;
+mod utils;
 
 fn train<P: AsRef<Path>>(
     train_file: P,
@@ -30,9 +32,6 @@ fn train<P: AsRef<Path>>(
     batch_size: usize,
     logger: &Logger,
 ) -> Result<(), Box<Error>> {
-    let mut dev = devices::Naive::new(); // let mut dev = D::CUDA::new(0);
-    devices::set_default(&mut dev);
-
     let mut loader = Loader::new(Preprocessor::new(Vocab::new()));
     let train_dataset = loader.load(train_file)?;
 
@@ -76,6 +75,9 @@ fn main() {
         (@subcommand train =>
             (about: "Trains model")
             (@arg INPUT: +required "A training data file")
+            (@arg batch_size: -b --batchsize default_value("32") "Number of examples in each mini-batch")
+            (@arg device: -d --device default_value("-1") "GPU device ID (negative value indicates CPU)")
+            (@arg n_epochs: -e --epoch default_value("20") "Number of sweeps over the dataset to train")
         )
         (@subcommand test =>
             (about: "Tests model")
@@ -97,10 +99,23 @@ fn main() {
     let result = match matches.subcommand() {
         ("train", Some(m)) => {
             println!("train with a file: {}", m.value_of("INPUT").unwrap());
-            train(m.value_of("INPUT").unwrap(), None, 20, 32, &logger)
+            let batch_size = m.value_of("batch_size").unwrap().parse::<usize>().unwrap();
+            let device_id = m.value_of("device").unwrap().parse::<i32>().unwrap();
+            let n_epochs = m.value_of("n_epochs").unwrap().parse::<u32>().unwrap();
+            let mut dev = select_device(device_id);
+            devices::set_default(&mut *dev);
+            train(
+                m.value_of("INPUT").unwrap(),
+                None,
+                n_epochs,
+                batch_size,
+                &logger,
+            )
         }
         ("test", Some(m)) => {
             println!("test with a file: {}", m.value_of("INPUT").unwrap());
+            let mut dev = select_device(0);
+            devices::set_default(&mut *dev);
             test(m.value_of("INPUT").unwrap())
         }
         _ => unreachable!(),
