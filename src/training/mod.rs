@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::io::Stdout;
 use std::marker::PhantomData;
 
 use pbr::ProgressBar;
@@ -8,12 +8,12 @@ use slog::Logger;
 use dataset::Dataset;
 use logging::{LoggerBuilder, Stream};
 
-#[derive(Debug)]
+pub mod callbacks;
+
 pub struct Trainer<O, F, T> {
     optimizer: O,
     forward: F,
     _sample_type: PhantomData<T>,
-    logger: Option<Logger>,
     callbacks: Vec<(u32, usize, String, Box<Callback>)>,
 }
 
@@ -26,7 +26,6 @@ where
             optimizer: optimizer,
             forward: forward,
             _sample_type: PhantomData,
-            logger: None,
             callbacks: vec![],
         }
     }
@@ -41,44 +40,33 @@ where
         self.callbacks.sort_by(|cb1, cb2| {
             (-(cb1.0 as i32), cb1.1).cmp(&(-(cb2.0 as i32), cb2.1))
         });
-        // if self.logger.is_none() {
-        //     let logger = LoggerBuilder::new(Stream::StdOut).build(o!());
-        //     self.logger = Some(logger);
-        // }
-        // let logger = self.logger.as_ref().unwrap();
 
         let mut g = Graph::new();
         Graph::set_default(&mut g);
 
-        for epoch in 1..n_epochs + 1 {
-            let mut train_info = TrainingInfo {
-                n_epochs: n_epochs,
-                epoch: epoch,
-                data_size: train_dataset.len(),
-                train: true,
-                loss: None,
-                batch_size: None,
-                batch_index: None,
-                batch_loss: None,
-            };
+        let n_samples = train_dataset.len();
+        self.notify(Event::TrainBegin, &TrainingInfo::new(n_epochs, n_samples));
 
-            // info!(self.logger.as_ref()unwrap(), "epoch: {}", epoch);
-            self.process_batches(&mut g, &train_dataset, batch_size, true);
+        for epoch in 1..n_epochs + 1 {
+            let mut train_info = TrainingInfo::new(n_epochs, n_samples);
+            train_info.epoch = epoch;
+            self.notify(Event::EpochBegin, &train_info);
+
+            self.process_batches(&mut g, &train_dataset, batch_size, &mut train_info);
+            self.notify(Event::EpochTrainEnd, &train_info);
 
             if let Some(ref v_data) = valid_dataset {
-                let mut valid_info = TrainingInfo {
-                    n_epochs: n_epochs,
-                    epoch: epoch,
-                    data_size: train_dataset.len(),
-                    train: true,
-                    loss: None,
-                    batch_size: None,
-                    batch_index: None,
-                    batch_loss: None,
-                };
-                self.process_batches(&mut g, v_data, batch_size, false);
+                let mut valid_info = TrainingInfo::new(n_epochs, v_data.len());
+                valid_info.epoch = epoch;
+                valid_info.train = false;
+                self.notify(Event::EpochValidateBegin, &train_info);
+                self.process_batches(&mut g, v_data, batch_size, &mut valid_info);
+                self.notify(Event::EpochValidateEnd, &train_info);
             }
+            self.notify(Event::EpochEnd, &train_info);
         }
+
+        self.notify(Event::TrainEnd, &TrainingInfo::new(n_epochs, n_samples));
     }
 
     fn process_batches(
@@ -86,23 +74,47 @@ where
         g: &mut Graph,
         dataset: &Dataset<T>,
         batch_size: usize,
-        train: bool,
+        info: &mut TrainingInfo,
     ) {
-        // let logger = self.logger.as_ref().unwrap();
-        let mut pbar = ProgressBar::new(dataset.len() as u64);
-        let mut train_loss = 0.0;
-        for batch in dataset.batch(batch_size, train) {
-            let size = batch.len();
+        let train = info.train;
+        self.notify(
+            if train {
+                Event::EpochTrainBegin
+            } else {
+                Event::EpochValidateBegin
+            },
+            &info,
+        );
+
+        let mut epoch_loss = 0.0;
+        for (batch_index, batch) in dataset.batch(batch_size, train).enumerate() {
+            info.batch_size = Some(batch.len());
+            info.batch_index = Some(batch_index);
+            self.notify(Event::BatchBegin, &info);
+
             g.clear();
-            self.optimizer.reset_gradients();
             let loss = (self.forward)(batch, train);
-            train_loss += loss.to_float();
-            loss.backward();
-            self.optimizer.update();
-            pbar.add(size as u64);
+            let loss_value = loss.to_float();
+            epoch_loss += loss_value;
+            if train {
+                self.optimizer.reset_gradients();
+                loss.backward();
+                self.optimizer.update();
+            }
+
+            info.batch_loss = Some(loss_value);
+            self.notify(Event::BatchEnd, &info);
         }
-        pbar.finish();
-        // info!(logger, "loss: {}", train_loss);
+
+        info.loss = Some(epoch_loss);
+        self.notify(
+            if train {
+                Event::EpochTrainEnd
+            } else {
+                Event::EpochValidateEnd
+            },
+            &info,
+        );
     }
 
     pub fn add_callback<S: Into<String>, C: Into<Box<Callback>>>(&mut self, name: S, callback: C) {
@@ -140,12 +152,18 @@ where
         }
     }
 
-    pub fn set_logger(&mut self, logger: Logger) {
-        self.logger = Some(logger);
-    }
-
     fn notify(&mut self, event: Event, info: &TrainingInfo) {
         match event {
+            Event::TrainBegin => {
+                self.callbacks.iter_mut().for_each(
+                    |cb| cb.3.on_train_begin(info),
+                );
+            }
+            Event::TrainEnd => {
+                self.callbacks.iter_mut().for_each(
+                    |cb| cb.3.on_train_end(info),
+                );
+            }
             Event::EpochBegin => {
                 self.callbacks.iter_mut().for_each(
                     |cb| cb.3.on_epoch_begin(info),
@@ -188,11 +206,13 @@ where
             }
         }
     }
-    // y=None,
-    // batch_size=32,
-    // epochs=10,
-    // validation_data=None,
-    // verbose=True):
+
+    pub fn enable_report(&mut self, logger: Logger, show_progress: bool) {
+        self.add_callback("reporter", callbacks::Reporter::new(logger));
+        if show_progress {
+            self.add_callback("progressbar", callbacks::ProgressBar::<Stdout>::new());
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -207,8 +227,25 @@ pub struct TrainingInfo {
     pub batch_loss: Option<f32>,
 }
 
+impl TrainingInfo {
+    pub fn new(n_epochs: u32, data_size: usize) -> Self {
+        TrainingInfo {
+            n_epochs: n_epochs,
+            epoch: 0,
+            data_size: data_size,
+            train: true,
+            loss: None,
+            batch_size: None,
+            batch_index: None,
+            batch_loss: None,
+        }
+    }
+}
+
 #[derive(Debug)]
 enum Event {
+    TrainBegin,
+    TrainEnd,
     EpochBegin,
     EpochEnd,
     EpochTrainBegin,
@@ -219,7 +256,9 @@ enum Event {
     BatchEnd,
 }
 
-pub trait Callback: Debug {
+pub trait Callback {
+    fn on_train_begin(&mut self, info: &TrainingInfo) {}
+    fn on_train_end(&mut self, info: &TrainingInfo) {}
     fn on_epoch_begin(&mut self, info: &TrainingInfo) {}
     fn on_epoch_end(&mut self, info: &TrainingInfo) {}
     fn on_epoch_train_begin(&mut self, info: &TrainingInfo) {}

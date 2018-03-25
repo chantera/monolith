@@ -2,7 +2,6 @@
 extern crate clap;
 #[macro_use]
 extern crate monolith;
-extern crate pbr;
 #[macro_use]
 extern crate primitiv;
 #[macro_use]
@@ -60,38 +59,9 @@ fn train<P: AsRef<Path>>(
         let ys = model.forward(words, chars, train);
         model.loss(&ys, postags)
     });
-    // trainer.set_logger(logger.new(o!("child" => "test")));
+    trainer.enable_report(logger.new(o!("child" => "test")), true);
     trainer.fit(train_dataset, None, n_epochs, batch_size);
-    /*
-    let mut g = Graph::new();
-    Graph::set_default(&mut g);
 
-    for epoch in 1..n_epoch + 1 {
-        info!(logger, "epoch: {}", epoch);
-        let mut pbar = ProgressBar::new(train_dataset.len() as u64);
-        let mut train_loss = 0.0;
-        // for mut batch in train_dataset.batch(batch_size, true) {
-        for mut batch in train_dataset.batch(2, true) {
-            let size = batch.len();
-            sort_batch!(batch);
-            take_cols!((words:0, chars:1, postags:2); batch, batch_size);
-            // transpose!(words, chars, postags);
-            let words = transpose_sequence(words, Some(0));
-            let postags = transpose_sequence(postags, Some(0));
-            g.clear();
-            let ys = model.forward(words, chars, true);
-
-            optimizer.reset_gradients();
-            let loss = model.loss(&ys, postags);
-            train_loss += loss.to_float();
-            loss.backward();
-            optimizer.update();
-            pbar.add(size as u64);
-        }
-        pbar.finish();
-        info!(logger, "loss: {}", train_loss);
-    }
-    */
     Ok(())
 }
 
