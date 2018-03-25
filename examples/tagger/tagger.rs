@@ -2,6 +2,7 @@
 extern crate clap;
 #[macro_use]
 extern crate monolith;
+extern crate pbr;
 #[macro_use]
 extern crate primitiv;
 #[macro_use]
@@ -14,6 +15,7 @@ use std::result::Result;
 use monolith::dataset::transpose_sequence;
 use monolith::logging::{LoggerBuilder, Stream};
 use monolith::preprocessing::Vocab;
+use monolith::training::Trainer;
 use primitiv::*;
 use slog::Logger;
 
@@ -25,7 +27,7 @@ mod models;
 fn train<P: AsRef<Path>>(
     train_file: P,
     _valid_file: Option<P>,
-    n_epoch: u32,
+    n_epochs: u32,
     batch_size: usize,
     logger: &Logger,
 ) -> Result<(), Box<Error>> {
@@ -49,13 +51,28 @@ fn train<P: AsRef<Path>>(
     optimizer.set_gradient_clipping(5.0);
     optimizer.add_model(&mut model);
 
+    let mut trainer = Trainer::new(optimizer, |mut batch: Vec<&Sample>, train: bool| {
+        sort_batch!(batch);
+        take_cols!((words:0, chars:1, postags:2); batch, batch_size);
+        // transpose!(words, chars, postags);
+        let words = transpose_sequence(words, Some(0));
+        let postags = transpose_sequence(postags, Some(0));
+        let ys = model.forward(words, chars, train);
+        model.loss(&ys, postags)
+    });
+    // trainer.set_logger(logger.new(o!("child" => "test")));
+    trainer.fit(train_dataset, None, n_epochs, batch_size);
+    /*
     let mut g = Graph::new();
     Graph::set_default(&mut g);
 
     for epoch in 1..n_epoch + 1 {
         info!(logger, "epoch: {}", epoch);
+        let mut pbar = ProgressBar::new(train_dataset.len() as u64);
         let mut train_loss = 0.0;
-        for mut batch in train_dataset.batch(batch_size, true) {
+        // for mut batch in train_dataset.batch(batch_size, true) {
+        for mut batch in train_dataset.batch(2, true) {
+            let size = batch.len();
             sort_batch!(batch);
             take_cols!((words:0, chars:1, postags:2); batch, batch_size);
             // transpose!(words, chars, postags);
@@ -68,9 +85,13 @@ fn train<P: AsRef<Path>>(
             let loss = model.loss(&ys, postags);
             train_loss += loss.to_float();
             loss.backward();
+            optimizer.update();
+            pbar.add(size as u64);
         }
-        info!(logger, "batch loss: {}", train_loss);
+        pbar.finish();
+        info!(logger, "loss: {}", train_loss);
     }
+    */
     Ok(())
 }
 

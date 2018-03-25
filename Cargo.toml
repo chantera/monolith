@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Hiroki Teranishi <teranishihiroki@gmail.com>"]
 
 [dependencies]
+pbr = { version = "1.0", optional = true }
 primitiv = { version = "0.3", optional = true }
 slog = { version = "2.1", optional = true }
 slog-async = { version = "2.2", optional = true }
@@ -15,12 +16,18 @@ clap = "2.31"
 tempfile = "2.2"
 
 [features]
-syntax = []
+default = ["logging", "models", "training"]
 dataset-conll = []
 logging = ["slog", "slog-async", "slog-term"]
 models = ["primitiv"]
+syntax = []
+training = ["logging", "models", "pbr"]
+
+primitiv-cuda = ["primitiv/cuda"]
+primitiv-eigen = ["primitiv/eigen"]
+primitiv-opencl = ["primitiv/opencl"]
 
 [[example]]
 name = "tagger"
 path = "examples/tagger/tagger.rs"
-required-features = ["dataset-conll", "models"]
+required-features = ["dataset-conll", "logging", "models", "training"]
