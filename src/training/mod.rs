@@ -1,4 +1,4 @@
-use std::io::Stdout;
+use std::io::Stderr;
 use std::marker::PhantomData;
 
 use primitiv::{Graph, Node, Optimizer};
@@ -205,7 +205,7 @@ where
     pub fn enable_report(&mut self, logger: Logger, show_progress: bool) {
         self.add_callback("reporter", callbacks::Reporter::new(logger));
         if show_progress {
-            self.add_callback("progressbar", callbacks::ProgressBar::<Stdout>::new());
+            self.add_callback("progressbar", callbacks::ProgressBar::<Stderr>::new());
         }
     }
 }
