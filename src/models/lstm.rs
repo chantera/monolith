@@ -1,6 +1,7 @@
 use primitiv::Model;
 use primitiv::Node;
 use primitiv::Parameter;
+use primitiv::Shape;
 use primitiv::initializers as I;
 use primitiv::node_functions as F;
 
@@ -52,15 +53,15 @@ impl LSTM {
     }
 
     /// Initializes internal values.
-    pub fn reset(&mut self, init_c: Option<&Node>, init_h: Option<&Node>) {
+    pub fn reset(&mut self, init_c: Option<Node>, init_h: Option<Node>) {
         let out_size = self.pw.shape().at(0) / 4;
         self.w = F::parameter(&mut self.pw);
         self.b = F::parameter(&mut self.pb);
         self.c = init_c
-            .and_then(|n| if n.valid() { Some(n.clone()) } else { None })
+            .and_then(|n| if n.valid() { Some(n) } else { None })
             .unwrap_or(F::zeros([out_size]));
         self.h = init_h
-            .and_then(|n| if n.valid() { Some(n.clone()) } else { None })
+            .and_then(|n| if n.valid() { Some(n) } else { None })
             .unwrap_or(F::zeros([out_size]));
     }
 
@@ -73,7 +74,7 @@ impl LSTM {
                 let batch = x.shape().batch();
                 if batch > prev_batch {
                     panic!(
-                        "batch size must be smaller than the initial batch size: x.shape: {}, lstm.h.shape: {}",
+                        "batch size must be smaller than or equal to the previous batch size: x.shape: {}, lstm.h.shape: {}",
                         x.shape(),
                         self.h.shape()
                     );
@@ -185,24 +186,40 @@ impl BiLSTM {
     }
 
     /// Initializes internal values.
-    pub fn reset(&mut self, init_states: Option<Vec<(Option<&Node>, Option<&Node>)>>) {
+    fn reset(&mut self, init_states: Option<Vec<(Option<Node>, Option<Node>)>>, batch_size: u32) {
         let num_layers = self.lstms.len() * 2;
+        let out_size = self.output_size() / 2;
         let mut states = init_states.unwrap_or(vec![]);
         assert!(states.len() <= num_layers);
         for _ in 0..(num_layers - states.len()) {
-            states.push((None, None));
+            states.push((
+                Some(F::zeros(Shape::from_dims(&[out_size], batch_size))),
+                Some(F::zeros(Shape::from_dims(&[out_size], batch_size))),
+            ));
         }
         for (i, (c, h)) in states.into_iter().enumerate() {
             let (ref mut lstm_f, ref mut lstm_b) = self.lstms[i / 2];
             if i % 2 == 0 {
                 lstm_f.reset(c, h);
             } else {
+                if let Some(ref init_c) = c {
+                    assert!(init_c.shape().batch() == batch_size);
+                }
+                if let Some(ref init_h) = h {
+                    assert!(init_h.shape().batch() == batch_size);
+                }
                 lstm_b.reset(c, h);
             }
         }
     }
 
-    pub fn forward(&mut self, xs: &[Node], train: bool) -> Vec<Node> {
+    pub fn forward(
+        &mut self,
+        xs: &[Node],
+        init_states: Option<Vec<(Option<Node>, Option<Node>)>>,
+        train: bool,
+    ) -> Vec<Node> {
+        self.reset(init_states, xs[0].shape().batch());
         assert!(self.initialized() && self.ready());
         let mut iter = self.lstms.iter_mut();
         let hs = {
@@ -210,8 +227,8 @@ impl BiLSTM {
             let xs_f = xs.iter();
             let xs_b = xs.iter().rev();
             let hs_f = xs_f.map(|x| lstm_f.forward(x));
-            let hs_b = xs_b.map(|x| lstm_b.forward(x));
-            hs_f.zip(hs_b.rev())
+            let hs_b = xs_b.map(|x| lstm_b.forward(x)).collect::<Vec<Node>>();
+            hs_f.zip(hs_b.into_iter().rev())
                 .map(|(h_f, h_b)| F::concat(&[h_f, h_b], 0))
                 .collect()
         };

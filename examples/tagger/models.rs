@@ -25,6 +25,8 @@ impl Tagger {
         };
         m.model.add_submodel("word_embed", &mut m.word_embed);
         m.model.add_submodel("char_embed", &mut m.char_embed);
+        m.model.add_submodel("bilstm", &mut m.bilstm);
+        m.model.add_submodel("mlp", &mut m.mlp);
         m
     }
 
@@ -66,8 +68,7 @@ impl Tagger {
                 .map(|x| F::dropout(x, self.dropout_rate, true))
                 .collect::<Vec<_>>();
         }
-        self.bilstm.reset(None);
-        let hs = self.bilstm.forward(&xs, train);
+        let hs = self.bilstm.forward(&xs, None, train);
         let ys = hs.into_iter().map(|h| self.mlp.forward(h, train)).collect();
         ys
     }

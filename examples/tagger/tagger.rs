@@ -38,7 +38,7 @@ fn train<P: AsRef<Path>>(
     let mut model = TaggerBuilder::new()
         .word(preprocessor.word_vocab().size(), 100)
         .char(preprocessor.char_vocab().size(), 32)
-        .lstm(400)
+        .lstm(200)
         .mlp(100)
         .dropout(0.5)
         .out(preprocessor.pos_vocab().size())
