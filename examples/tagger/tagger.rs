@@ -26,14 +26,19 @@ mod utils;
 
 fn train<P: AsRef<Path>>(
     train_file: P,
-    _valid_file: Option<P>,
+    valid_file: Option<P>,
     n_epochs: u32,
     batch_size: usize,
     logger: &Logger,
 ) -> Result<(), Box<Error>> {
     let mut loader = Loader::new(Preprocessor::new(Vocab::new()));
     let train_dataset = loader.load(train_file)?;
-    let preprocessor = loader.preprocessor();
+    loader.fix();
+    let valid_dataset = match valid_file {
+        Some(f) => Some(loader.load(f)?),
+        None => None,
+    };
+    let preprocessor = loader.dispose();
 
     let mut model = TaggerBuilder::new()
         .word(preprocessor.word_vocab().size(), 100)
@@ -60,7 +65,7 @@ fn train<P: AsRef<Path>>(
     });
     trainer.show_progress();
     trainer.enable_report(logger.new(o!("child" => "test")));
-    trainer.fit(train_dataset, None, n_epochs, batch_size);
+    trainer.fit(train_dataset, valid_dataset, n_epochs, batch_size);
 
     Ok(())
 }
@@ -79,6 +84,7 @@ fn main() {
             (@arg batch_size: -b --batchsize default_value("32") "Number of examples in each mini-batch")
             (@arg device: -d --device default_value("-1") "GPU device ID (negative value indicates CPU)")
             (@arg n_epochs: -e --epoch default_value("20") "Number of sweeps over the dataset to train")
+            (@arg valid_file: --vfile +takes_value "A validation data file")
         )
         (@subcommand test =>
             (about: "Tests model")
@@ -107,7 +113,7 @@ fn main() {
             devices::set_default(&mut *dev);
             train(
                 m.value_of("INPUT").unwrap(),
-                None,
+                m.value_of("valid_file"),
                 n_epochs,
                 batch_size,
                 &logger,
