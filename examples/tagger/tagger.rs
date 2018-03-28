@@ -11,7 +11,6 @@ use std::error::Error;
 use std::path::Path;
 use std::result::Result;
 
-use monolith::dataset::transpose_sequence;
 use monolith::logging::{LoggerBuilder, Stream};
 use monolith::preprocessing::Vocab;
 use monolith::training::Trainer;
@@ -52,9 +51,7 @@ fn train<P: AsRef<Path>>(
     let mut trainer = Trainer::new(optimizer, |mut batch: Vec<&Sample>, train: bool| {
         sort_batch!(batch);
         take_cols!((words:0, chars:1, postags:2); batch, batch_size);
-        // transpose!(words, chars, postags);
-        let words = transpose_sequence(words, Some(0));
-        let postags = transpose_sequence(postags, Some(0));
+        transpose!(words, chars, postags);
         let ys = model.forward(words, chars, train);
         model.loss(&ys, postags)
     });

@@ -65,9 +65,9 @@ impl LSTM {
     }
 
     /// One step forwarding.
-    pub fn forward<N: AsRef<Node>>(&mut self, x: N) -> &Node {
+    pub fn forward<N: AsRef<Node>>(&mut self, x: N) -> Node {
         let x = x.as_ref();
-        let (lstm_in, _h_rest): (Node, Option<Node>) = {
+        let (lstm_in, h_rest): (Node, Option<Node>) = {
             let prev_batch = self.h.shape().batch();
             if prev_batch > 1 {
                 let batch = x.shape().batch();
@@ -78,7 +78,9 @@ impl LSTM {
                         self.h.shape()
                     );
                 } else if batch < prev_batch {
-                    panic!("Not Implemented.")
+                    let h = F::batch::slice(&self.h, 0, batch);
+                    let h_rest = F::batch::slice(&self.h, batch, prev_batch);
+                    (F::concat(&vec![x, &h], 0), Some(h_rest))
                 } else {
                     (F::concat(&vec![x, &self.h], 0), None)
                 }
@@ -92,9 +94,26 @@ impl LSTM {
         let f = F::sigmoid(&v[1]);
         let o = F::sigmoid(&v[2]);
         let j = F::tanh(&v[3]);
-        self.c = i * j + f * &self.c;
-        self.h = o * F::tanh(&self.c);
-        &self.h
+
+        match h_rest {
+            Some(h) => {
+                let batch = x.shape().batch();
+                let prev_batch = self.c.shape().batch();
+                let c = F::batch::slice(&self.c, 0, batch);
+                let c_rest = F::batch::slice(&self.c, batch, prev_batch);
+                let c = i * j + f * c;
+                let y = o * F::tanh(&c);
+                self.h = F::batch::concat(&vec![&y, &h]);
+                self.c = F::batch::concat(&vec![c, c_rest]);
+                y
+            }
+            None => {
+                self.c = i * j + f * &self.c;
+                let y = o * F::tanh(&self.c);
+                self.h = y.clone();
+                y
+            }
+        }
     }
 
     pub fn initialized(&self) -> bool {
@@ -190,8 +209,8 @@ impl BiLSTM {
             let &mut (ref mut lstm_f, ref mut lstm_b) = iter.next().unwrap();
             let xs_f = xs.iter();
             let xs_b = xs.iter().rev();
-            let hs_f = xs_f.map(|x| lstm_f.forward(x).clone());
-            let hs_b = xs_b.map(|x| lstm_b.forward(x).clone());
+            let hs_f = xs_f.map(|x| lstm_f.forward(x));
+            let hs_b = xs_b.map(|x| lstm_b.forward(x));
             hs_f.zip(hs_b.rev())
                 .map(|(h_f, h_b)| F::concat(&[h_f, h_b], 0))
                 .collect()
@@ -202,12 +221,8 @@ impl BiLSTM {
             let hs = {
                 let xs_f = xs_next.iter();
                 let xs_b = xs_next.iter().rev();
-                let hs_f = xs_f.map(|x| {
-                    lstm_f.forward(F::dropout(x, dropout_rate, train)).clone()
-                });
-                let hs_b = xs_b.map(|x| {
-                    lstm_b.forward(F::dropout(x, dropout_rate, train)).clone()
-                });
+                let hs_f = xs_f.map(|x| lstm_f.forward(F::dropout(x, dropout_rate, train)));
+                let hs_b = xs_b.map(|x| lstm_b.forward(F::dropout(x, dropout_rate, train)));
                 hs_f.zip(hs_b.rev())
                     .map(|(h_f, h_b)| F::concat(&[h_f, h_b], 0))
                     .collect()

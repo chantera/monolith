@@ -77,12 +77,15 @@ impl Tagger {
         PosBatch: AsRef<[PosIDs]>,
         PosIDs: AsRef<[u32]>,
     {
+        let batch_size = ys[0].shape().batch();
         let losses: Vec<Node> = ts.as_ref()
             .iter()
             .zip(ys)
-            .map(|(t, y)| F::softmax_cross_entropy_with_ids(y, t.as_ref(), 0))
+            .map(|(t, y)| {
+                F::batch::sum(F::softmax_cross_entropy_with_ids(y, t.as_ref(), 0))
+            })
             .collect();
-        F::batch::mean(F::sum_nodes(&losses))
+        F::sum_nodes(&losses) / batch_size
     }
 }
 
