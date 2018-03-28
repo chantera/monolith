@@ -88,6 +88,24 @@ impl Tagger {
             .collect();
         F::sum_nodes(&losses) / batch_size
     }
+
+    pub fn accuracy<PosBatch, PosIDs>(&mut self, ys: &[Node], ts: PosBatch) -> (u32, u32)
+    where
+        PosBatch: AsRef<[PosIDs]>,
+        PosIDs: AsRef<[u32]>,
+    {
+        let mut correct = 0;
+        let mut total = 0;
+        for (y_batch, t_batch) in ys.iter().zip(ts.as_ref()) {
+            for (y, t) in y_batch.argmax(0).iter().zip(t_batch.as_ref()) {
+                total += 1;
+                if y == t {
+                    correct += 1;
+                }
+            }
+        }
+        (correct, total)
+    }
 }
 
 impl_model!(Tagger, model);

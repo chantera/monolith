@@ -8,22 +8,39 @@ use dataset::Dataset;
 
 pub mod callbacks;
 
-pub struct Trainer<O, F, T> {
+pub struct ForwardFnOutput<U>(Node, U);
+
+impl<U> From<(Node, U)> for ForwardFnOutput<U> {
+    fn from(x: (Node, U)) -> Self {
+        ForwardFnOutput(x.0, x.1)
+    }
+}
+
+impl From<Node> for ForwardFnOutput<Option<f32>> {
+    fn from(x: Node) -> Self {
+        ForwardFnOutput(x, None)
+    }
+}
+
+pub struct Trainer<O, F, T, U> {
     optimizer: O,
     forward: F,
     _sample_type: PhantomData<T>,
-    callbacks: Vec<(u32, usize, String, Box<Callback>)>,
+    _output_type: PhantomData<U>,
+    callbacks: Vec<(u32, usize, String, Box<Callback<U>>)>,
 }
 
-impl<O: Optimizer, F, T> Trainer<O, F, T>
+impl<O: Optimizer, F, T, U, FO> Trainer<O, F, T, U>
 where
-    F: FnMut(Vec<&T>, bool) -> Node,
+    F: FnMut(Vec<&T>, bool) -> FO,
+    FO: Into<ForwardFnOutput<U>>,
 {
     pub fn new(optimizer: O, forward: F) -> Self {
         Trainer {
             optimizer: optimizer,
             forward: forward,
             _sample_type: PhantomData,
+            _output_type: PhantomData,
             callbacks: vec![],
         }
     }
@@ -69,7 +86,7 @@ where
         g: &mut Graph,
         dataset: &Dataset<T>,
         batch_size: usize,
-        info: &mut TrainingInfo,
+        info: &mut TrainingInfo<U>,
     ) {
         let train = info.train;
         self.notify(
@@ -88,7 +105,8 @@ where
             self.notify(Event::BatchBegin, &info);
 
             g.clear();
-            let loss = (self.forward)(batch, train);
+            let ret = (self.forward)(batch, train).into();
+            let (loss, output) = (ret.0, ret.1);
             let loss_value = loss.to_float();
             epoch_loss += loss_value;
             if train {
@@ -98,6 +116,7 @@ where
             }
 
             info.batch_loss = Some(loss_value);
+            info.output = Some(output);
             self.notify(Event::BatchEnd, &info);
         }
 
@@ -112,11 +131,15 @@ where
         );
     }
 
-    pub fn add_callback<S: Into<String>, C: Into<Box<Callback>>>(&mut self, name: S, callback: C) {
+    pub fn add_callback<S: Into<String>, C: Callback<U> + 'static>(
+        &mut self,
+        name: S,
+        callback: C,
+    ) {
         self.add_callback_with_priority(name, callback, 1000);
     }
 
-    pub fn add_callback_with_priority<S: Into<String>, C: Into<Box<Callback>>>(
+    pub fn add_callback_with_priority<S: Into<String>, C: Callback<U> + 'static>(
         &mut self,
         name: S,
         callback: C,
@@ -126,7 +149,7 @@ where
         self.remove_callback(&name);
         let index = self.callbacks.len();
         self.callbacks.push(
-            (priority, index, name, callback.into()),
+            (priority, index, name, Box::new(callback)),
         );
     }
 
@@ -147,7 +170,7 @@ where
         }
     }
 
-    fn notify(&mut self, event: Event, info: &TrainingInfo) {
+    fn notify(&mut self, event: Event, info: &TrainingInfo<U>) {
         match event {
             Event::TrainBegin => {
                 self.callbacks.iter_mut().for_each(
@@ -202,16 +225,33 @@ where
         }
     }
 
-    pub fn enable_report(&mut self, logger: Logger, show_progress: bool) {
+    pub fn show_progress(&mut self) {
+        self.add_callback("progressbar", callbacks::ProgressBar::<Stderr>::new());
+    }
+}
+
+impl<O: Optimizer, F, T, U, FO> Trainer<O, F, T, Option<U>>
+where
+    F: FnMut(Vec<&T>, bool) -> FO,
+    FO: Into<ForwardFnOutput<Option<U>>>,
+{
+    pub fn enable_report(&mut self, logger: Logger) {
         self.add_callback("reporter", callbacks::Reporter::new(logger));
-        if show_progress {
-            self.add_callback("progressbar", callbacks::ProgressBar::<Stderr>::new());
-        }
+    }
+}
+
+impl<O: Optimizer, F, T, FO> Trainer<O, F, T, (u32, u32)>
+where
+    F: FnMut(Vec<&T>, bool) -> FO,
+    FO: Into<ForwardFnOutput<(u32, u32)>>,
+{
+    pub fn enable_report(&mut self, logger: Logger) {
+        self.add_callback("reporter", callbacks::Reporter::new(logger));
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct TrainingInfo {
+pub struct TrainingInfo<U> {
     pub n_epochs: u32,
     pub epoch: u32,
     pub data_size: usize,
@@ -220,9 +260,10 @@ pub struct TrainingInfo {
     pub batch_size: Option<usize>,
     pub batch_index: Option<usize>,
     pub batch_loss: Option<f32>,
+    pub output: Option<U>,
 }
 
-impl TrainingInfo {
+impl<U> TrainingInfo<U> {
     pub fn new(n_epochs: u32, data_size: usize) -> Self {
         TrainingInfo {
             n_epochs: n_epochs,
@@ -233,6 +274,7 @@ impl TrainingInfo {
             batch_size: None,
             batch_index: None,
             batch_loss: None,
+            output: None,
         }
     }
 }
@@ -251,31 +293,25 @@ enum Event {
     BatchEnd,
 }
 
-pub trait Callback {
+pub trait Callback<U> {
     #[allow(unused_variables)]
-    fn on_train_begin(&mut self, info: &TrainingInfo) {}
+    fn on_train_begin(&mut self, info: &TrainingInfo<U>) {}
     #[allow(unused_variables)]
-    fn on_train_end(&mut self, info: &TrainingInfo) {}
+    fn on_train_end(&mut self, info: &TrainingInfo<U>) {}
     #[allow(unused_variables)]
-    fn on_epoch_begin(&mut self, info: &TrainingInfo) {}
+    fn on_epoch_begin(&mut self, info: &TrainingInfo<U>) {}
     #[allow(unused_variables)]
-    fn on_epoch_end(&mut self, info: &TrainingInfo) {}
+    fn on_epoch_end(&mut self, info: &TrainingInfo<U>) {}
     #[allow(unused_variables)]
-    fn on_epoch_train_begin(&mut self, info: &TrainingInfo) {}
+    fn on_epoch_train_begin(&mut self, info: &TrainingInfo<U>) {}
     #[allow(unused_variables)]
-    fn on_epoch_train_end(&mut self, info: &TrainingInfo) {}
+    fn on_epoch_train_end(&mut self, info: &TrainingInfo<U>) {}
     #[allow(unused_variables)]
-    fn on_epoch_validate_begin(&mut self, info: &TrainingInfo) {}
+    fn on_epoch_validate_begin(&mut self, info: &TrainingInfo<U>) {}
     #[allow(unused_variables)]
-    fn on_epoch_validate_end(&mut self, info: &TrainingInfo) {}
+    fn on_epoch_validate_end(&mut self, info: &TrainingInfo<U>) {}
     #[allow(unused_variables)]
-    fn on_batch_begin(&mut self, info: &TrainingInfo) {}
+    fn on_batch_begin(&mut self, info: &TrainingInfo<U>) {}
     #[allow(unused_variables)]
-    fn on_batch_end(&mut self, info: &TrainingInfo) {}
-}
-
-impl<'a, C: Callback + 'a> From<C> for Box<Callback + 'a> {
-    fn from(cb: C) -> Box<Callback + 'a> {
-        Box::new(cb)
-    }
+    fn on_batch_end(&mut self, info: &TrainingInfo<U>) {}
 }

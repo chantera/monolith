@@ -54,9 +54,12 @@ fn train<P: AsRef<Path>>(
         take_cols!((words:0, chars:1, postags:2); batch, batch_size);
         transpose!(words, chars, postags);
         let ys = model.forward(words, chars, train);
-        model.loss(&ys, postags)
+        let loss = model.loss(&ys, &postags);
+        let accuracy = model.accuracy(&ys, &postags);
+        (loss, accuracy)
     });
-    trainer.enable_report(logger.new(o!("child" => "test")), true);
+    trainer.show_progress();
+    trainer.enable_report(logger.new(o!("child" => "test")));
     trainer.fit(train_dataset, None, n_epochs, batch_size);
 
     Ok(())
