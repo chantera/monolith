@@ -21,6 +21,18 @@ impl Preprocessor {
             pos_v: Vocab::with_default_token("NN".to_string()),
         }
     }
+
+    pub fn word_vocab(&self) -> &Vocab {
+        &self.word_v
+    }
+
+    pub fn char_vocab(&self) -> &Vocab {
+        &self.char_v
+    }
+
+    pub fn pos_vocab(&self) -> &Vocab {
+        &self.pos_v
+    }
 }
 
 impl<T: Phrasal> Preprocess<T> for Preprocessor {

@@ -33,14 +33,15 @@ fn train<P: AsRef<Path>>(
 ) -> Result<(), Box<Error>> {
     let mut loader = Loader::new(Preprocessor::new(Vocab::new()));
     let train_dataset = loader.load(train_file)?;
+    let preprocessor = loader.preprocessor();
 
     let mut model = TaggerBuilder::new()
-        .word(10000, 100)
-        .char(200, 32)
+        .word(preprocessor.word_vocab().size(), 100)
+        .char(preprocessor.char_vocab().size(), 32)
         .lstm(400)
         .mlp(100)
         .dropout(0.5)
-        .out(64)
+        .out(preprocessor.pos_vocab().size())
         .build();
 
     let mut optimizer = optimizers::Adam::default();

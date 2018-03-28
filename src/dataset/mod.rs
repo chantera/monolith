@@ -283,6 +283,10 @@ impl<T, R: Read<Item = T>, P: Preprocess<T>> Loader<R, P> {
     pub fn fix(&mut self) {
         self.enable_fit = false;
     }
+
+    pub fn preprocessor(&self) -> &P {
+        &self.preprocessor
+    }
 }
 
 impl<T, P: Preprocess<T>, R: FileOpen + Read<Item = T>> Load for Loader<R, P> {
