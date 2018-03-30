@@ -24,14 +24,18 @@ mod dataset;
 mod models;
 mod utils;
 
-fn train<P: AsRef<Path>>(
-    train_file: P,
-    valid_file: Option<P>,
+fn train<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
+    train_file: P1,
+    valid_file: Option<P2>,
+    embed_file: Option<P3>,
     n_epochs: u32,
     batch_size: usize,
     logger: &Logger,
 ) -> Result<(), Box<Error>> {
-    let mut loader = Loader::new(Preprocessor::new(Vocab::new()));
+    let mut loader = Loader::new(Preprocessor::new(match embed_file {
+        Some(f) => Vocab::from_file(f, "<UNK>")?,
+        None => Vocab::new(),
+    }));
     let train_dataset = loader.load(train_file)?;
     loader.fix();
     let valid_dataset = match valid_file {
@@ -83,6 +87,7 @@ fn main() {
             (@arg INPUT: +required "A training data file")
             (@arg batch_size: -b --batchsize default_value("32") "Number of examples in each mini-batch")
             (@arg device: -d --device default_value("-1") "GPU device ID (negative value indicates CPU)")
+            (@arg embed_file: --embed +takes_value "A file of pretrained word embeddings")
             (@arg n_epochs: -e --epoch default_value("20") "Number of sweeps over the dataset to train")
             (@arg valid_file: --vfile +takes_value "A validation data file")
         )
@@ -114,6 +119,7 @@ fn main() {
             train(
                 m.value_of("INPUT").unwrap(),
                 m.value_of("valid_file"),
+                m.value_of("embed_file"),
                 n_epochs,
                 batch_size,
                 &logger,
