@@ -80,6 +80,7 @@ impl Vocab {
             v.add(entry.0);
             embeddings.push(entry.1);
         }
+        v.embeddings = Some(embeddings);
         Ok(v)
     }
 
