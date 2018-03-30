@@ -33,7 +33,15 @@ fn train<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
     logger: &Logger,
 ) -> Result<(), Box<Error>> {
     let mut loader = Loader::new(Preprocessor::new(match embed_file {
-        Some(f) => Vocab::from_file(f, "<UNK>")?,
+        Some(f) => {
+            eprint!(
+                "load embedding from `{}` ... ",
+                f.as_ref().to_str().unwrap()
+            );
+            let v = Vocab::from_file(f, "<UNK>")?;
+            eprintln!("done.");
+            v
+        }
         None => Vocab::new(),
     }));
     let train_dataset = loader.load(train_file)?;

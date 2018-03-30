@@ -1,10 +1,13 @@
 use std::borrow::Borrow;
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::{self, BufRead};
+use std::io as std_io;
 use std::path::Path;
 
+use io::embedding as embed_io;
 use lang::RcString;
+use rand::thread_rng;
+use rand::distributions;
+use rand::distributions::range::RangeImpl;
 
 #[derive(Debug)]
 pub struct Vocab {
@@ -25,7 +28,7 @@ impl Vocab {
     pub fn from_file<P: AsRef<Path>, S: Into<String>>(
         file: P,
         default_token: S,
-    ) -> Result<Self, io::Error> {
+    ) -> Result<Self, std_io::Error> {
         // @TODO: support following formats:
         // 1. vocab: word per line
         //  (example)
@@ -46,10 +49,37 @@ impl Vocab {
         //
         // currently supports the format `2` only.
 
-        let (words, embeddings) = load_embeddings(file, " ")?;
-        let mut v = Self::with_capacity_and_default_token(words.len(), default_token.into());
-        words.into_iter().for_each(|word| { v.add(word); });
-        v.embeddings = Some(embeddings);
+        let mut entries = embed_io::load_embeddings(file, b' ', false)?;
+        let capacity = entries.len() + 1;
+        assert!(capacity > 1);
+        let mut embeddings = Vec::with_capacity(capacity);
+
+        let default_token = default_token.into();
+        let default = entries.iter().position(
+            |ref entry| entry.0 == default_token,
+        );
+        match default {
+            Some(index) => {
+                let entry = entries.remove(index);
+                embeddings.push(entry.1);
+            }
+            None => {
+                let dim = entries[0].1.len();
+                let uniform = distributions::range::RangeFloat::<f32>::new(-1.0, 1.0);
+                let mut value = Vec::with_capacity(dim);
+                let mut rng = thread_rng();
+                for _ in 0..dim {
+                    value.push(uniform.sample(&mut rng));
+                }
+                embeddings.push(value);
+            }
+        }
+
+        let mut v = Self::with_capacity_and_default_token(capacity, default_token);
+        for entry in entries.into_iter() {
+            v.add(entry.0);
+            embeddings.push(entry.1);
+        }
         Ok(v)
     }
 
@@ -110,43 +140,6 @@ impl Vocab {
     pub fn embed(&self) -> Option<&Vec<Vec<f32>>> {
         self.embeddings.as_ref()
     }
-}
-
-pub fn load_embeddings<P: AsRef<Path>>(
-    file: P,
-    delimiter: &str,
-) -> Result<(Vec<String>, Vec<Vec<f32>>), io::Error> {
-    let reader = io::BufReader::new(File::open(file)?);
-    let mut vocab = vec![];
-    let mut embeddings = vec![];
-    for line in reader.lines() {
-        let l = line?;
-        let mut cols = l.split(delimiter);
-        let mut embedding = vec![];
-        match cols.next() {
-            Some(word) => {
-                vocab.push(word.to_string());
-            }
-            None => {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "A word must be placed first in a line",
-                ));
-            }
-        }
-        for value in cols {
-            match value.parse::<f32>() {
-                Ok(v) => {
-                    embedding.push(v);
-                }
-                Err(e) => {
-                    return Err(io::Error::new(io::ErrorKind::InvalidData, e));
-                }
-            }
-        }
-        embeddings.push(embedding);
-    }
-    Ok((vocab, embeddings))
 }
 
 trait Tokenize {

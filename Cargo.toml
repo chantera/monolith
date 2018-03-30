@@ -4,12 +4,15 @@ version = "0.1.0"
 authors = ["Hiroki Teranishi <teranishihiroki@gmail.com>"]
 
 [dependencies]
+csv = "1.0.0-beta"
 pbr = { version = "1.0", optional = true }
 primitiv = { version = "0.3", optional = true }
+serde = "1.0"
+serde_derive = "1.0"
 slog = { version = "2.1", optional = true }
 slog-async = { version = "2.2", optional = true }
 slog-term = { version = "2.3", optional = true }
-rand = "0.4"
+rand = "0.5.0-pre"
 
 [dev-dependencies]
 clap = "2.31"

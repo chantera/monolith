@@ -1,4 +1,8 @@
+extern crate csv;
 extern crate rand;
+#[macro_use]
+extern crate serde_derive;
+
 #[cfg(feature = "training")]
 extern crate pbr;
 #[cfg(feature = "logging")]
