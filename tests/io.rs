@@ -30,10 +30,13 @@ mod tests {
 
         assert_eq!(reader.read_upto(2, &mut buf).unwrap(), 2);
         assert_eq!(reader.read_upto(2, &mut buf).unwrap(), 0);
+        assert_eq!(buf.len(), 4);
 
+        buf.clear();
         assert_eq!(reader.seek(SeekFrom::Start(0)).unwrap(), 0);
-        assert_eq!(reader.read(&mut buf).unwrap(), 4);
+        assert_eq!(reader.read_to_end(&mut buf).unwrap(), 4);
         assert_eq!(reader.read_upto(1, &mut buf).unwrap(), 0);
+        assert_eq!(buf.len(), 4);
     }
 
     static RAW_TEXT: &'static str = r#"
