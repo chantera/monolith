@@ -32,34 +32,38 @@ fn train<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
     batch_size: usize,
     logger: &Logger,
 ) -> Result<(), Box<Error>> {
-    let mut loader = Loader::new(Preprocessor::new(match embed_file {
-        Some(f) => {
-            eprint!(
-                "load embedding from `{}` ... ",
-                f.as_ref().to_str().unwrap()
-            );
-            let v = Vocab::from_cache_or_file(f, "<UNK>")?;
-            eprintln!("done.");
-            v
-        }
-        None => Vocab::new(),
-    }));
-    let train_dataset = loader.load(train_file)?;
-    loader.fix();
-    let valid_dataset = match valid_file {
-        Some(f) => Some(loader.load(f)?),
-        None => None,
-    };
-    let preprocessor = loader.dispose();
+    let (train_dataset, valid_dataset, mut model) = {
+        let mut loader = Loader::new(Preprocessor::new(match embed_file {
+            Some(f) => {
+                eprint!(
+                    "load embedding from `{}` ... ",
+                    f.as_ref().to_str().unwrap()
+                );
+                let v = Vocab::from_cache_or_file(f, "<UNK>")?;
+                eprintln!("done.");
+                v
+            }
+            None => Vocab::new(),
+        }));
 
-    let mut model = TaggerBuilder::new()
-        .word(preprocessor.word_vocab().size(), 100)
-        .char(preprocessor.char_vocab().size(), 32)
-        .lstm(200)
-        .mlp(100)
-        .dropout(0.5)
-        .out(preprocessor.pos_vocab().size())
-        .build();
+        let train_dataset = loader.load(train_file)?;
+        loader.fix();
+        let valid_dataset = match valid_file {
+            Some(f) => Some(loader.load(f)?),
+            None => None,
+        };
+        let preprocessor = loader.dispose();
+
+        let mut model = TaggerBuilder::new()
+            .word(preprocessor.word_vocab().size(), 100)
+            .char(preprocessor.char_vocab().size(), 32)
+            .lstm(200)
+            .mlp(100)
+            .dropout(0.5)
+            .out(preprocessor.pos_vocab().size())
+            .build();
+        (train_dataset, valid_dataset, model)
+    };
 
     let mut optimizer = optimizers::Adam::default();
     optimizer.set_weight_decay(1e-6);
