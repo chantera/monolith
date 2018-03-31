@@ -5,6 +5,7 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::usize::MAX as USIZE_MAX;
 
+pub mod cache;
 pub mod embedding;
 pub mod prelude;
 pub mod serialize;

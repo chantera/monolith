@@ -6,8 +6,8 @@ extern crate tempfile;
 use std::io::{self as std_io, BufRead};
 
 use monolith::io::prelude::*;
+use monolith::io::cache::Cache;
 use monolith::io::serialize;
-
 
 #[test]
 fn test_serialize() {
@@ -75,6 +75,32 @@ fn test_serialize() {
     for (obj, person) in objs.iter().zip(&people) {
         assert_eq!(obj, person);
     }
+}
+
+#[test]
+fn test_cache() {
+    #[derive(Debug, PartialEq, Deserialize, Serialize)]
+    struct Person {
+        name: String,
+        age: u32,
+    }
+
+    impl Person {
+        fn new<S: Into<String>>(name: S, age: u32) -> Self {
+            Person {
+                name: name.into(),
+                age: age,
+            }
+        }
+    }
+
+    let person1 = Person::new("John", 26);
+
+    let mut cache = Cache::new("test_cache");
+    cache.write("John", &person1).unwrap();
+    assert!(cache.exists("John"));
+    let obj: Person = cache.read("John").unwrap();
+    assert_eq!(obj, person1);
 }
 
 #[cfg(feature = "dataset-conll")]

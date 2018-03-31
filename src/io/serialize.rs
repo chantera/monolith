@@ -19,7 +19,6 @@ pub enum Format {
 pub struct Serializer<IO, T> {
     _phantom: PhantomData<T>,
     inner: IO,
-    buf: Vec<String>,
     format: Format,
 }
 
@@ -28,7 +27,6 @@ impl<IO, T> Serializer<IO, T> {
         Serializer {
             _phantom: PhantomData,
             inner: io,
-            buf: vec![],
             format: format,
         }
     }
@@ -94,7 +92,7 @@ impl<T: Serialize, IO: std_io::Write> mod_io::Write for Serializer<IO, T> {
         for item in buf {
             let mut bytes = self.serialize(item)?;
             bytes.push(b'\n');
-            self.inner.write(&bytes);
+            self.inner.write(&bytes)?;
         }
         Ok(buf.len())
     }
