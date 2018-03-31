@@ -57,7 +57,11 @@ impl MLP {
 
     pub fn init(&mut self, units: &[u32], out_size: u32) {
         let num_layers = self.layers.len();
-        assert_eq!(num_layers, units.len());
+        assert_eq!(
+            num_layers,
+            units.len(),
+            "the number of unit values must be equal to that of the layers"
+        );
         for (i, layer) in self.layers.iter_mut().enumerate() {
             let out = if i < num_layers - 1 {
                 units[i + 1]

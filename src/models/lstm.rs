@@ -154,7 +154,7 @@ pub struct BiLSTM {
 
 impl BiLSTM {
     pub fn new(n_layers: usize, dropout: f32) -> Self {
-        assert!(n_layers > 0);
+        assert!(n_layers > 0, "`n_layers` must be greater than 0");
         let mut model = Model::new();
         let mut lstms = Vec::with_capacity(n_layers);
         for i in 0..n_layers {
@@ -190,7 +190,7 @@ impl BiLSTM {
         let num_layers = self.lstms.len() * 2;
         let out_size = self.output_size() / 2;
         let mut states = init_states.unwrap_or(vec![]);
-        assert!(states.len() <= num_layers);
+        debug_assert!(states.len() <= num_layers);
         for _ in 0..(num_layers - states.len()) {
             states.push((
                 Some(F::zeros(Shape::from_dims(&[out_size], batch_size))),
@@ -203,10 +203,10 @@ impl BiLSTM {
                 lstm_f.reset(c, h);
             } else {
                 if let Some(ref init_c) = c {
-                    assert!(init_c.shape().batch() == batch_size);
+                    debug_assert!(init_c.shape().batch() == batch_size);
                 }
                 if let Some(ref init_h) = h {
-                    assert!(init_h.shape().batch() == batch_size);
+                    debug_assert!(init_h.shape().batch() == batch_size);
                 }
                 lstm_b.reset(c, h);
             }
@@ -220,7 +220,7 @@ impl BiLSTM {
         train: bool,
     ) -> Vec<Node> {
         self.reset(init_states, xs[0].shape().batch());
-        assert!(self.initialized() && self.ready());
+        debug_assert!(self.initialized() && self.ready());
         let mut iter = self.lstms.iter_mut();
         let hs = {
             let &mut (ref mut lstm_f, ref mut lstm_b) = iter.next().unwrap();

@@ -53,7 +53,7 @@ impl Vocab {
 
         let mut entries = embed_io::load_embeddings(file, b' ', false)?;
         let capacity = entries.len() + 1;
-        assert!(capacity > 1);
+        debug_assert!(capacity > 1);
         let mut embeddings = Vec::with_capacity(capacity);
 
         let default_token = default_token.into();

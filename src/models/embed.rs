@@ -42,7 +42,7 @@ impl Embed {
         Entries: AsRef<[Values]>,
         Values: AsRef<[f32]>,
     {
-        assert!(values.as_ref().len() > 0);
+        debug_assert!(values.as_ref().len() > 0);
         let vocab_size = values.as_ref().len();
         let embed_size = values.as_ref()[0].as_ref().len();
         let mut v = Vec::with_capacity(vocab_size * embed_size);

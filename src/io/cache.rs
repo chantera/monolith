@@ -18,7 +18,7 @@ pub static CACHE_DIRNAME: &'static str = "cache";
 impl Cache {
     pub fn new<S: Into<String>>(name: S) -> Self {
         let mut dir = app::app_dir().unwrap();
-        assert!(dir.exists());
+        debug_assert!(dir.exists());
         dir.push(CACHE_DIRNAME);
         Cache::with_dir(name, dir, true).unwrap()
     }
