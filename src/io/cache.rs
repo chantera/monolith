@@ -104,3 +104,54 @@ impl Cache {
         path
     }
 }
+
+#[inline]
+pub fn read_cache<T: DeserializeOwned>(prefix: &str, name: &str) -> std_io::Result<T> {
+    Cache::new(prefix).read(name)
+}
+
+#[inline]
+pub fn write_cache<T: Serialize>(prefix: &str, name: &str, data: &T) -> std_io::Result<()> {
+    Cache::new(prefix).write(name, data)
+}
+
+#[inline]
+pub fn cache_exists(prefix: &str, name: &str) -> bool {
+    Cache::new(prefix).exists(name)
+}
+
+pub trait FromCache: Serialize + Sized {
+    fn from_cache(name: &str) -> std_io::Result<Self>;
+
+    fn has_cache(name: &str) -> bool;
+}
+
+pub trait IntoCache: DeserializeOwned {
+    fn into_cache(&self, name: &str) -> std_io::Result<()>;
+}
+
+#[macro_export]
+macro_rules! impl_cache {
+    ($name:ident) => {
+        use std::io::Result as IOResult;
+
+        impl cache::FromCache for $name {
+            fn from_cache(name: &str) -> IOResult<Self> {
+                let prefix = stringify!($name).to_lowercase();
+                cache::read_cache(&prefix, name)
+            }
+
+            fn has_cache(name: &str) -> bool {
+                let prefix = stringify!($name).to_lowercase();
+                cache::cache_exists(&prefix, name)
+            }
+        }
+
+        impl cache::IntoCache for $name {
+            fn into_cache(&self, name: &str) -> IOResult<()> {
+                let prefix = stringify!($name).to_lowercase();
+                cache::write_cache(&prefix, name, self)
+            }
+        }
+    }
+}

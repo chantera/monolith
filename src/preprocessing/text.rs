@@ -3,13 +3,15 @@ use std::collections::HashMap;
 use std::io as std_io;
 use std::path::Path;
 
+use io::cache::{self, FromCache, IntoCache};
 use io::embedding as embed_io;
 use lang::RcString;
 use rand::thread_rng;
 use rand::distributions;
 use rand::distributions::range::RangeImpl;
+use uuid::{Uuid, NAMESPACE_OID as UUID_NAMESPACE_OID};
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Vocab {
     s2i: HashMap<RcString, u32>,
     i2s: Vec<RcString>,
@@ -84,6 +86,24 @@ impl Vocab {
         Ok(v)
     }
 
+    pub fn from_cache_or_file<P: AsRef<Path>, S: Into<String>>(
+        file: P,
+        default_token: S,
+    ) -> Result<Self, std_io::Error> {
+        let s = default_token.into();
+        let hash = Uuid::new_v5(
+            &UUID_NAMESPACE_OID,
+            &format!("{}={}", file.as_ref().to_str().unwrap(), s),
+        ).to_string();
+        if Vocab::has_cache(&hash) {
+            Vocab::from_cache(&hash)
+        } else {
+            let v = Vocab::from_file(file, s)?;
+            Vocab::into_cache(&v, &hash)?;
+            Ok(v)
+        }
+    }
+
     pub fn with_default_token(default_token: String) -> Self {
         Self::with_capacity_and_default_token(DEFAULT_CAPACITY, default_token)
     }
@@ -142,6 +162,8 @@ impl Vocab {
         self.embeddings.as_ref()
     }
 }
+
+impl_cache!(Vocab);
 
 trait Tokenize {
     fn tokenize(sentence: &str) -> Vec<String>;

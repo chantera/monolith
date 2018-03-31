@@ -38,7 +38,7 @@ fn train<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
                 "load embedding from `{}` ... ",
                 f.as_ref().to_str().unwrap()
             );
-            let v = Vocab::from_file(f, "<UNK>")?;
+            let v = Vocab::from_cache_or_file(f, "<UNK>")?;
             eprintln!("done.");
             v
         }

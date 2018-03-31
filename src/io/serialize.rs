@@ -3,11 +3,13 @@ use std::io as std_io;
 use std::marker::PhantomData;
 
 use serde::{Deserialize, Serialize};
-use serde::de::DeserializeOwned;
+use serde::de::{DeserializeOwned, Deserializer as SerdeDeserializer};
+use serde::ser::Serializer as SerdeSerializer;
 use serde_json;
 use rmp_serde;
 
 use io as mod_io;
+use lang::RcString;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Format {
@@ -145,5 +147,24 @@ impl<T: DeserializeOwned, IO: std_io::Read> mod_io::Read for Serializer<IO, T> {
 impl<T, IO: std_io::Seek> std_io::Seek for Serializer<IO, T> {
     fn seek(&mut self, pos: std_io::SeekFrom) -> std_io::Result<u64> {
         self.inner.seek(pos)
+    }
+}
+
+impl Serialize for RcString {
+    #[inline]
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: SerdeSerializer,
+    {
+        serializer.serialize_str(self)
+    }
+}
+
+impl<'de> Deserialize<'de> for RcString {
+    fn deserialize<D>(deserializer: D) -> Result<RcString, D::Error>
+    where
+        D: SerdeDeserializer<'de>,
+    {
+        String::deserialize(deserializer).map(|s| RcString::new(s.to_string()))
     }
 }

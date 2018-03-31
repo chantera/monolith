@@ -16,6 +16,7 @@ slog-async = { version = "2.2", optional = true }
 slog-term = { version = "2.3", optional = true }
 rand = "0.5.0-pre"
 rmp-serde = "0.13"
+uuid = { version = "0.6", features = ["v5"] }
 
 [dev-dependencies]
 clap = "2.31"

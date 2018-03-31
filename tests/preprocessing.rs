@@ -1,5 +1,6 @@
 extern crate monolith;
 
+use monolith::io::cache::{Cache, FromCache, IntoCache};
 use monolith::lang::{Sentence, Token};
 use monolith::preprocessing::{Preprocess, TextPreprocessor, Vocab};
 
@@ -32,4 +33,19 @@ fn test_preprocessor() {
     preprocessor.fit(vec![sentence3.clone()].into_iter());
     let word_ids = preprocessor.transform(vec![sentence3].into_iter());
     assert_eq!(word_ids[0], &[24, 25, 26, 17]);
+}
+
+#[test]
+fn test_serialize() {
+    let mut v = Vocab::new();
+    assert_eq!(v.add("Hello".to_string()), 1);
+    assert_eq!(v.add("World".to_string()), 2);
+    assert_eq!(v.add("!".to_string()), 3);
+
+    v.into_cache("test_serialize").unwrap();
+    assert!(Cache::new("vocab").exists("test_serialize"));
+    let mut v2 = Vocab::from_cache("test_serialize").unwrap();
+    assert_eq!(v2.add("Hello".to_string()), 1);
+    assert_eq!(v2.add("World".to_string()), 2);
+    assert_eq!(v2.add("!".to_string()), 3);
 }

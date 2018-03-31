@@ -6,6 +6,7 @@ extern crate serde;
 extern crate serde_derive;
 extern crate serde_json;
 extern crate rmp_serde;
+extern crate uuid;
 
 #[cfg(feature = "training")]
 extern crate pbr;
@@ -23,6 +24,7 @@ extern crate primitiv;
 pub mod app;
 #[macro_use]
 pub mod dataset;
+#[macro_use]
 pub mod io;
 pub mod lang;
 #[cfg(feature = "logging")]
