@@ -5,6 +5,7 @@ use std::marker::PhantomData;
 use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
 use serde_json;
+use rmp_serde;
 
 use io as mod_io;
 
@@ -63,10 +64,11 @@ pub fn serialize<T: Serialize>(data: &T, format: Format) -> std_io::Result<Vec<u
                 Err(e) => Err(std_io::Error::new(std_io::ErrorKind::InvalidData, e)),
             }
         }
-        Format::Msgpack => Err(std_io::Error::new(
-            std_io::ErrorKind::Other,
-            "Not Supported",
-        )),
+        Format::Msgpack => {
+            rmp_serde::to_vec(data).map_err(|e| {
+                std_io::Error::new(std_io::ErrorKind::InvalidData, e)
+            })
+        }
     }
 }
 
@@ -77,10 +79,11 @@ pub fn deserialize<'a, T: Deserialize<'a>>(bytes: &'a [u8], format: Format) -> s
                 std_io::Error::new(std_io::ErrorKind::InvalidData, e)
             })
         }
-        Msgpack => Err(std_io::Error::new(
-            std_io::ErrorKind::Other,
-            "Not Supported",
-        )),
+        Format::Msgpack => {
+            rmp_serde::from_slice(bytes).map_err(|e| {
+                std_io::Error::new(std_io::ErrorKind::InvalidData, e)
+            })
+        }
     }
 }
 

@@ -39,10 +39,17 @@ fn test_serialize() {
     assert_eq!(person1, person1_de);
 
     let bytes = serialize::serialize(&person1, serialize::Format::JsonPretty).unwrap();
+    let person1_de: Person = serialize::deserialize(&bytes, serialize::Format::JsonPretty).unwrap();
     assert_eq!(
         String::from_utf8(bytes).unwrap(),
         "{\n  \"name\": \"John\",\n  \"age\": 26\n}"
     );
+    assert_eq!(person1, person1_de);
+
+    let bytes = serialize::serialize(&person1, serialize::Format::Msgpack).unwrap();
+    let person1_de: Person = serialize::deserialize(&bytes, serialize::Format::Msgpack).unwrap();
+    assert_eq!(bytes, [146, 164, 74, 111, 104, 110, 26]);
+    assert_eq!(person1, person1_de);
 
     let people = vec![person1, person2, person3];
     let mut serializer = serialize::Serializer::new(vec![], serialize::Format::Json);
