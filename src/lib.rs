@@ -1,4 +1,5 @@
 extern crate csv;
+extern crate libc;
 extern crate rand;
 extern crate serde;
 #[macro_use]
@@ -19,6 +20,7 @@ extern crate slog_term;
 #[macro_use]
 extern crate primitiv;
 
+pub mod app;
 #[macro_use]
 pub mod dataset;
 pub mod io;
@@ -32,3 +34,4 @@ pub mod preprocessing;
 // pub mod syntax;
 #[cfg(feature = "training")]
 pub mod training;
+pub mod utils;
