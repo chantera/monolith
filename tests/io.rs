@@ -3,7 +3,7 @@ extern crate monolith;
 extern crate serde_derive;
 extern crate tempfile;
 
-use std::io::{self as std_io, BufRead};
+use std::io as std_io;
 
 use monolith::io::prelude::*;
 use monolith::io::cache::Cache;
@@ -30,50 +30,63 @@ fn test_serialize() {
     let person2 = Person::new("Mary", 23);
     let person3 = Person::new("Bob", 30);
 
-    let bytes = serialize::serialize(&person1, serialize::Format::Json).unwrap();
-    let person1_de: Person = serialize::deserialize(&bytes, serialize::Format::Json).unwrap();
-    assert_eq!(
-        String::from_utf8(bytes).unwrap(),
-        "{\"name\":\"John\",\"age\":26}"
-    );
-    assert_eq!(person1, person1_de);
-
-    let bytes = serialize::serialize(&person1, serialize::Format::JsonPretty).unwrap();
-    let person1_de: Person = serialize::deserialize(&bytes, serialize::Format::JsonPretty).unwrap();
-    assert_eq!(
-        String::from_utf8(bytes).unwrap(),
-        "{\n  \"name\": \"John\",\n  \"age\": 26\n}"
-    );
-    assert_eq!(person1, person1_de);
-
-    let bytes = serialize::serialize(&person1, serialize::Format::Msgpack).unwrap();
-    let person1_de: Person = serialize::deserialize(&bytes, serialize::Format::Msgpack).unwrap();
-    assert_eq!(bytes, [146, 164, 74, 111, 104, 110, 26]);
-    assert_eq!(person1, person1_de);
-
-    let people = vec![person1, person2, person3];
-    let mut serializer = serialize::Serializer::new(vec![], serialize::Format::Json);
-    serializer.write(&people).unwrap();
-    serializer.flush().unwrap();
-
-    let buf: Vec<u8> = serializer.inner().iter().map(|&b| b).collect();
-    let reader = std_io::BufReader::new(std_io::Cursor::new(buf));
-    for (line, in_p) in reader.split(b'\n').zip(&people) {
-        let out_p: Person = serialize::deserialize(&line.unwrap(), serialize::Format::Json)
+    {
+        let bytes = serialize::serialize(&person1, serialize::Format::Json).unwrap();
+        let person1_de: Person = serialize::deserialize(&bytes, serialize::Format::Json).unwrap();
+        assert_eq!(
+            String::from_utf8(bytes).unwrap(),
+            "{\"name\":\"John\",\"age\":26}"
+        );
+        assert_eq!(person1, person1_de);
+    }
+    {
+        let bytes = serialize::serialize(&person1, serialize::Format::JsonPretty).unwrap();
+        let person1_de: Person = serialize::deserialize(&bytes, serialize::Format::JsonPretty)
             .unwrap();
-        assert_eq!(out_p, *in_p);
+        assert_eq!(
+            String::from_utf8(bytes).unwrap(),
+            "{\n  \"name\": \"John\",\n  \"age\": 26\n}"
+        );
+        assert_eq!(person1, person1_de);
+    }
+    {
+        let bytes = serialize::serialize(&person1, serialize::Format::Msgpack).unwrap();
+        let person1_de: Person = serialize::deserialize(&bytes, serialize::Format::Msgpack)
+            .unwrap();
+        assert_eq!(bytes, [146, 164, 74, 111, 104, 110, 26]);
+        assert_eq!(person1, person1_de);
     }
 
-    let mut serializer =
-        serialize::Serializer::new(tempfile::tempfile().unwrap(), serialize::Format::Json);
-    serializer.write_all(&people).unwrap();
-    serializer.seek(std_io::SeekFrom::Start(0)).unwrap();
+    let people = vec![person1, person2, person3];
 
-    let mut objs = vec![];
-    serializer.read_to_end(&mut objs).unwrap();
-    assert_eq!(objs.len(), people.len());
-    for (obj, person) in objs.iter().zip(&people) {
-        assert_eq!(obj, person);
+    {
+        let mut serializer = serialize::Serializer::new(vec![], serialize::Format::Json);
+        serializer.write_all(&people).unwrap();
+        serializer.flush().unwrap();
+        let data: Vec<u8> = serializer.inner().iter().map(|&b| b).collect();
+
+        let reader = std_io::BufReader::new(std_io::Cursor::new(data));
+        let mut deserializer =
+            serialize::Serializer::<_, Person>::new(reader, serialize::Format::Json);
+        let mut objs = vec![];
+        deserializer.read_upto(3, &mut objs).unwrap();
+        for (obj, person) in objs.iter().zip(&people) {
+            assert_eq!(obj, person);
+        }
+    }
+    {
+        let mut serializer =
+            serialize::Serializer::new(tempfile::tempfile().unwrap(), serialize::Format::Json);
+        serializer.write_all(&people).unwrap();
+        serializer.flush().unwrap();
+        serializer.seek(std_io::SeekFrom::Start(0)).unwrap();
+
+        let mut objs = vec![];
+        serializer.read_to_end(&mut objs).unwrap();
+        assert_eq!(objs.len(), people.len());
+        for (obj, person) in objs.iter().zip(&people) {
+            assert_eq!(obj, person);
+        }
     }
 }
 

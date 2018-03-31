@@ -1,3 +1,4 @@
+extern crate byteorder;
 extern crate csv;
 extern crate libc;
 extern crate rand;

@@ -1,7 +1,8 @@
-use std::cmp;
 use std::io as std_io;
 use std::marker::PhantomData;
+use std::u32::MAX as U32_MAX;
 
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
 use serde::de::{DeserializeOwned, Deserializer as SerdeDeserializer};
 use serde::ser::Serializer as SerdeSerializer;
@@ -93,8 +94,16 @@ impl<T: Serialize, IO: std_io::Write> mod_io::Write for Serializer<IO, T> {
     fn write(&mut self, buf: &[Self::Item]) -> std_io::Result<usize> {
         for item in buf {
             let mut bytes = self.serialize(item)?;
+            let len = bytes.len();
+            if len > U32_MAX as usize {
+                return Err(std_io::Error::new(
+                    std_io::ErrorKind::Other,
+                    format!("only supports {} length byte stream", U32_MAX),
+                ));
+            }
+            self.inner.write_u32::<BigEndian>(len as u32)?;
             bytes.push(b'\n');
-            self.inner.write(&bytes)?;
+            self.inner.write_all(&bytes)?;
         }
         Ok(buf.len())
     }
@@ -109,36 +118,26 @@ impl<T: DeserializeOwned, IO: std_io::Read> mod_io::Read for Serializer<IO, T> {
 
     fn read_upto(&mut self, num: usize, buf: &mut Vec<Self::Item>) -> std_io::Result<usize> {
         let mut count = 0;
-        let mut w_buf = Vec::new();
-        let mut r_buf = vec![0; 1024];
-        let mut pos = 0;
-        let mut cap = 0;
         while count < num {
-            // if already consumed, then read next buffer.
-            if pos >= cap {
-                debug_assert!(pos == cap);
-                cap = self.inner.read(&mut r_buf)?;
-                pos = 0;
-            }
-            // search from the current buffer.
-            let available = &r_buf[pos..cap];
-            let used = match available.iter().position(|&b| b == b'\n') {
-                Some(i) => {
-                    w_buf.extend_from_slice(&available[..i]);
-                    buf.push(self.deserialize(&w_buf)?);
-                    count += 1;
-                    w_buf.clear();
-                    i + 1
-                }
-                None => {
-                    w_buf.extend_from_slice(available);
-                    available.len()
+            let len = match self.inner.read_u32::<BigEndian>() {
+                Ok(n) => n as usize,
+                Err(e) => {
+                    match e.kind() {
+                        std_io::ErrorKind::UnexpectedEof => break,
+                        _ => return Err(e),
+                    }
                 }
             };
-            pos = cmp::min(pos + used, cap); // consumed
-            if used == 0 {
-                break;
+            let mut data = vec![0; len + 1];
+            self.inner.read_exact(&mut data)?;
+            if data[len] != b'\n' {
+                return Err(std_io::Error::new(
+                    std_io::ErrorKind::InvalidData,
+                    "broken data",
+                ));
             }
+            buf.push(self.deserialize(&data[..len])?);
+            count += 1;
         }
         Ok(count)
     }
