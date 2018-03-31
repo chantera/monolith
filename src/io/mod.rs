@@ -7,6 +7,7 @@ use std::usize::MAX as USIZE_MAX;
 
 pub mod embedding;
 pub mod prelude;
+pub mod serialize;
 
 pub trait Read {
     type Item;
@@ -48,6 +49,23 @@ pub trait Read {
             Ok(())
         }
     }
+
+    fn by_ref(&mut self) -> &mut Self
+    where
+        Self: Sized,
+    {
+        self
+    }
+
+    // TODO(chantera): Implement followings:
+    // fn chain<R: Read>(self, next: R) -> Chain<Self, R>
+    // where
+    //     Self: Sized,
+    // { ... }
+    // fn take(self, limit: u64) -> Take<Self>
+    // where
+    //     Self: Sized,
+    // { ... }
 }
 
 pub trait FileOpen: Sized {
@@ -130,3 +148,36 @@ pub fn read_upto<R: io::BufRead, T: FromLine>(
 }
 
 pub type BufFileReader<T> = Reader<io::BufReader<File>, T>;
+
+pub trait Write {
+    type Item;
+
+    fn write(&mut self, buf: &[Self::Item]) -> io::Result<usize>;
+
+    fn flush(&mut self) -> io::Result<()>;
+
+    fn write_all(&mut self, buf: &[Self::Item]) -> io::Result<()> {
+        let mut b = buf;
+        while !b.is_empty() {
+            match self.write(b) {
+                Ok(0) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::WriteZero,
+                        "failed to write whole buffer",
+                    ))
+                }
+                Ok(n) => b = &b[n..],
+                Err(ref e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(())
+    }
+
+    fn by_ref(&mut self) -> &mut Self
+    where
+        Self: Sized,
+    {
+        self
+    }
+}

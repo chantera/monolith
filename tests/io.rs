@@ -1,4 +1,74 @@
 extern crate monolith;
+#[macro_use]
+extern crate serde_derive;
+extern crate tempfile;
+
+use std::io::{self as std_io, BufRead};
+
+use monolith::io::prelude::*;
+use monolith::io::serialize;
+
+
+#[test]
+fn test_serialize() {
+    #[derive(Debug, PartialEq, Deserialize, Serialize)]
+    struct Person {
+        name: String,
+        age: u32,
+    }
+
+    impl Person {
+        fn new<S: Into<String>>(name: S, age: u32) -> Self {
+            Person {
+                name: name.into(),
+                age: age,
+            }
+        }
+    }
+
+    let person1 = Person::new("John", 26);
+    let person2 = Person::new("Mary", 23);
+    let person3 = Person::new("Bob", 30);
+
+    let bytes = serialize::serialize(&person1, serialize::Format::Json).unwrap();
+    let person1_de: Person = serialize::deserialize(&bytes, serialize::Format::Json).unwrap();
+    assert_eq!(
+        String::from_utf8(bytes).unwrap(),
+        "{\"name\":\"John\",\"age\":26}"
+    );
+    assert_eq!(person1, person1_de);
+
+    let bytes = serialize::serialize(&person1, serialize::Format::JsonPretty).unwrap();
+    assert_eq!(
+        String::from_utf8(bytes).unwrap(),
+        "{\n  \"name\": \"John\",\n  \"age\": 26\n}"
+    );
+
+    let people = vec![person1, person2, person3];
+    let mut serializer = serialize::Serializer::new(vec![], serialize::Format::Json);
+    serializer.write(&people).unwrap();
+    serializer.flush().unwrap();
+
+    let buf: Vec<u8> = serializer.inner().iter().map(|&b| b).collect();
+    let reader = std_io::BufReader::new(std_io::Cursor::new(buf));
+    for (line, in_p) in reader.split(b'\n').zip(&people) {
+        let out_p: Person = serialize::deserialize(&line.unwrap(), serialize::Format::Json)
+            .unwrap();
+        assert_eq!(out_p, *in_p);
+    }
+
+    let mut serializer =
+        serialize::Serializer::new(tempfile::tempfile().unwrap(), serialize::Format::Json);
+    serializer.write_all(&people).unwrap();
+    serializer.seek(std_io::SeekFrom::Start(0)).unwrap();
+
+    let mut objs = vec![];
+    serializer.read_to_end(&mut objs).unwrap();
+    assert_eq!(objs.len(), people.len());
+    for (obj, person) in objs.iter().zip(&people) {
+        assert_eq!(obj, person);
+    }
+}
 
 #[cfg(feature = "dataset-conll")]
 mod tests {

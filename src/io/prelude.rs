@@ -1,2 +1,2 @@
 pub use std::io::Seek;
-pub use super::{FileOpen, Read, FromLine};
+pub use super::{FileOpen, FromLine, Read, Write};
