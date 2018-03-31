@@ -59,8 +59,10 @@ impl Cache {
     }
 
     pub fn read_from<P: AsRef<Path>, T: DeserializeOwned>(&mut self, path: P) -> std_io::Result<T> {
-        let mut serializer =
-            serialize::Serializer::new(fs::File::open(path)?, serialize::Format::Msgpack);
+        let mut serializer = serialize::Serializer::new(
+            std_io::BufReader::new(fs::File::open(path)?),
+            serialize::Format::Msgpack,
+        );
         let mut buf = Vec::with_capacity(1);
         serializer.read_upto(1, &mut buf)?;
         if buf.len() != 1 {
@@ -89,7 +91,8 @@ impl Cache {
             .create(true)
             .truncate(true)
             .open(path)?;
-        let mut serializer = serialize::Serializer::new(file, serialize::Format::Msgpack);
+        let mut serializer =
+            serialize::Serializer::new(std_io::BufWriter::new(file), serialize::Format::Msgpack);
         serializer.write(&[data])?;
         serializer.flush()
     }
