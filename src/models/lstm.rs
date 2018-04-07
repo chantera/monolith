@@ -302,7 +302,7 @@ pub fn transpose_sequence(xs: Vec<Node>) -> Vec<Node> {
             }
         })
         .collect();
-    let xs_transposed = F::batch::split(F::concat(&xs, 0), batch_size as u32);
+    let xs_transposed = F::batch::split(F::transpose(F::concat(&xs, 1)), batch_size as u32);
     xs_transposed
         .into_iter()
         .zip(lengths.into_iter())
