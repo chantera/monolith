@@ -4,31 +4,33 @@ version = "0.1.0"
 authors = ["Hiroki Teranishi <teranishihiroki@gmail.com>"]
 
 [dependencies]
-byteorder = "1.2"
-csv = "1.0.0-beta"
+byteorder = { version = "1.2", optional = true }
+csv = { version = "1.0.0-beta", optional = true }
 libc = "0.2"
 pbr = { version = "1.0", optional = true }
 primitiv = { version = "0.3", optional = true }
-serde = "1.0"
-serde_derive = "1.0"
-serde_json = "1.0"
+serde = { version = "1.0", optional = true }
+serde_derive = { version = "1.0", optional = true }
+serde_json = { version = "1.0", optional = true }
 slog = { version = "2.1", optional = true }
 slog-async = { version = "2.2", optional = true }
 slog-term = { version = "2.3", optional = true }
 rand = "0.5.0-pre"
-rmp-serde = "0.13"
-uuid = { version = "0.6", features = ["v5"] }
+rmp-serde = { version = "0.13", optional = true }
+uuid = { version = "0.6", features = ["v5"], optional = true }
 
 [dev-dependencies]
 clap = "2.31"
 tempfile = "2.2"
 
 [features]
-default = ["logging", "models", "training"]
+default = ["logging", "models", "serialize", "training"]
+app = ["serialize", "uuid"]
 dataset-conll = []
 logging = ["slog", "slog-async", "slog-term"]
 models = ["primitiv"]
 syntax = []
+serialize = ["byteorder", "csv", "serde", "serde_derive", "serde_json", "rmp-serde"]
 training = ["logging", "models", "pbr"]
 
 primitiv-cuda = ["primitiv/cuda"]
@@ -38,4 +40,4 @@ primitiv-opencl = ["primitiv/opencl"]
 [[example]]
 name = "tagger"
 path = "examples/tagger/tagger.rs"
-required-features = ["dataset-conll", "logging", "models", "training"]
+required-features = ["app", "dataset-conll", "logging", "models", "serialize", "training"]

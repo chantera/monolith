@@ -5,10 +5,13 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::usize::MAX as USIZE_MAX;
 
+#[cfg(feature = "app")]
 #[macro_use]
 pub mod cache;
+#[cfg(feature = "serialize")]
 pub mod embedding;
 pub mod prelude;
+#[cfg(feature = "serialize")]
 pub mod serialize;
 
 pub trait Read {

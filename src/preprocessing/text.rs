@@ -1,17 +1,26 @@
 use std::borrow::Borrow;
 use std::collections::HashMap;
+#[cfg(feature = "serialize")]
 use std::io as std_io;
+#[cfg(feature = "serialize")]
 use std::path::Path;
 
+#[cfg(feature = "app")]
 use io::cache::{self, FromCache, IntoCache};
+#[cfg(feature = "serialize")]
 use io::embedding as embed_io;
 use lang::RcString;
+#[cfg(feature = "serialize")]
 use rand::thread_rng;
+#[cfg(feature = "serialize")]
 use rand::distributions;
+#[cfg(feature = "serialize")]
 use rand::distributions::range::RangeImpl;
+#[cfg(feature = "app")]
 use uuid::{Uuid, NAMESPACE_OID as UUID_NAMESPACE_OID};
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug)]
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 pub struct Vocab {
     s2i: HashMap<RcString, u32>,
     i2s: Vec<RcString>,
@@ -27,6 +36,7 @@ impl Vocab {
         Self::with_capacity_and_default_token(DEFAULT_CAPACITY, UNKNOWN_TOKEN.to_string())
     }
 
+    #[cfg(feature = "serialize")]
     pub fn from_file<P: AsRef<Path>, S: Into<String>>(
         file: P,
         default_token: S,
@@ -86,6 +96,7 @@ impl Vocab {
         Ok(v)
     }
 
+    #[cfg(feature = "app")]
     pub fn from_cache_or_file<P: AsRef<Path>, S: Into<String>>(
         file: P,
         default_token: S,
@@ -163,6 +174,7 @@ impl Vocab {
     }
 }
 
+#[cfg(feature = "app")]
 impl_cache!(Vocab);
 
 trait Tokenize {

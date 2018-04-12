@@ -1,16 +1,8 @@
-extern crate byteorder;
-extern crate csv;
 extern crate libc;
 extern crate rand;
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
-extern crate serde_json;
-extern crate rmp_serde;
-extern crate uuid;
 
-#[cfg(feature = "training")]
-extern crate pbr;
+#[cfg(feature = "app")]
+extern crate uuid;
 #[cfg(feature = "logging")]
 #[macro_use]
 extern crate slog;
@@ -21,7 +13,23 @@ extern crate slog_term;
 #[cfg(feature = "models")]
 #[macro_use]
 extern crate primitiv;
+#[cfg(feature = "serialize")]
+extern crate byteorder;
+#[cfg(feature = "serialize")]
+extern crate csv;
+#[cfg(feature = "serialize")]
+extern crate serde;
+#[cfg(feature = "serialize")]
+#[macro_use]
+extern crate serde_derive;
+#[cfg(feature = "serialize")]
+extern crate serde_json;
+#[cfg(feature = "serialize")]
+extern crate rmp_serde;
+#[cfg(feature = "training")]
+extern crate pbr;
 
+#[cfg(feature = "app")]
 pub mod app;
 #[macro_use]
 pub mod dataset;
