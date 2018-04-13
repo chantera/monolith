@@ -113,7 +113,7 @@ fn main() {
     log_config.logdir = "target".to_string();
     log_config.mkdir = false;
     log_config.filename = "your_log_file_path.log".to_string();
-    let logger = logging::create_logger(log_config).unwrap();
+    let logger = logging::AppLogger::new(log_config).unwrap();
     info!(logger, "info");
     warn!(logger, "hello world");
 
@@ -131,7 +131,7 @@ fn main() {
                 m.value_of("embed_file"),
                 n_epochs,
                 batch_size,
-                &logger,
+                logger.get_inner(),
             )
         }
         ("test", Some(m)) => {

@@ -3,13 +3,19 @@ use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::path::{Path, PathBuf, MAIN_SEPARATOR};
 use std::io as std_io;
+#[cfg(feature = "app")]
+use std::io::Write;
 
 use chrono::prelude::*;
 pub use slog::FilterLevel as Level;
 use slog::{Discard, Drain, Duplicate, Fuse, LevelFilter, Level as LogLevel, Logger, OwnedKV,
            SendSyncRefUnwindSafeKV};
+#[cfg(feature = "app")]
+use slog::Record;
 use slog_async::Async;
 use slog_term::{CompactFormat, Decorator, FullFormat, PlainDecorator, TermDecorator};
+#[cfg(feature = "app")]
+use uuid::{Uuid, NAMESPACE_OID as UUID_NAMESPACE_OID};
 
 use utils;
 
@@ -202,7 +208,7 @@ impl Default for Config {
 }
 
 pub fn create_logger<C: Into<Config>>(config: C) -> Result<Logger, Error> {
-    create_logger_with_kv_and_time(config, o!(), Local::now())
+    create_logger_with_kv(config, o!())
 }
 
 pub fn create_logger_with_kv<C: Into<Config>, T>(
@@ -212,19 +218,20 @@ pub fn create_logger_with_kv<C: Into<Config>, T>(
 where
     T: SendSyncRefUnwindSafeKV + 'static,
 {
-    create_logger_with_kv_and_time(config, values, Local::now())
+    create_logger_with_kv_and_time(config, values, &Local::now()).map(|(logger, _)| logger)
 }
 
-pub fn create_logger_with_kv_and_time<C: Into<Config>, T, Tz: TimeZone>(
+fn create_logger_with_kv_and_time<C: Into<Config>, T, Tz: TimeZone>(
     config: C,
     values: OwnedKV<T>,
-    datetime: DateTime<Tz>,
-) -> Result<Logger, Error>
+    datetime: &DateTime<Tz>,
+) -> Result<(Logger, Option<PathBuf>), Error>
 where
     T: SendSyncRefUnwindSafeKV + 'static,
     Tz::Offset: fmt::Display,
 {
     let c = config.into();
+    let mut filepath = None;
     let fstream = match c.level {
         Level::Off => Stream::Null,
         _ => {
@@ -255,7 +262,8 @@ where
                 c.mkdir,
                 enable_numbering,
             ).map_err(|e| Error::Other(e))?;
-            let file = options.open(path).map_err(|e| Error::Other(e))?;
+            let file = options.open(&path).map_err(|e| Error::Other(e))?;
+            filepath = Some(path);
             Stream::File(file)
         }
     };
@@ -272,7 +280,7 @@ where
             LoggerBuilder::new(fstream).level(c.level).format(c.format),
             values,
         );
-    Ok(logger)
+    Ok((logger, filepath))
 }
 
 fn resolve_filepath<P1: AsRef<Path>, P2: AsRef<Path>, Tz: TimeZone>(
@@ -280,7 +288,7 @@ fn resolve_filepath<P1: AsRef<Path>, P2: AsRef<Path>, Tz: TimeZone>(
     filename: P2,
     prefix: Option<&str>,
     suffix: Option<&str>,
-    time: DateTime<Tz>,
+    datetime: &DateTime<Tz>,
     mkdir: bool,
     numbering: bool,
 ) -> Result<PathBuf, std_io::Error>
@@ -318,7 +326,7 @@ where
     let stem = format!(
         "{}{}{}",
         prefix.unwrap_or(""),
-        time.format(stem),
+        datetime.format(stem),
         suffix.unwrap_or("")
     );
     let ext = filename
@@ -338,5 +346,91 @@ where
 
     } else {
         Ok(dir.join(format!("{}{}", stem, ext)))
+    }
+}
+
+#[cfg(feature = "app")]
+pub struct AppLogger {
+    inner: Logger,
+    config: Config,
+    accessid: String,
+    accesstime: DateTime<Local>,
+    filepath: Option<PathBuf>,
+}
+
+#[cfg(feature = "app")]
+impl AppLogger {
+    pub fn new<C: Into<Config>>(config: C) -> Result<Self, Error> {
+        let accesstime = Local::now();
+        let accessid = Uuid::new_v5(&UUID_NAMESPACE_OID, &accesstime.to_string()).to_string()[..8]
+            .to_string();
+        let c = config.into();
+
+        let (inner, filepath) = create_logger_with_kv_and_time(
+            c.clone(),
+            o!("accessid" => accessid.clone()),
+            &accesstime,
+        )?;
+        let mut logger = AppLogger {
+            inner: inner,
+            config: c,
+            accessid: accessid,
+            accesstime: accesstime,
+            filepath: filepath,
+        };
+        AppLogger::initialize(&mut logger);
+        Ok(logger)
+    }
+
+    fn initialize(&mut self) {
+        info!(
+            self,
+            "LOG Start with ACCESSID=[{}] ACCESSTIME=[{}]",
+            self.accessid,
+            self.accesstime.to_rfc3339(),
+        );
+    }
+
+    fn finalize(&mut self) {
+        let processtime = Local::now()
+            .signed_duration_since(self.accesstime)
+            .num_milliseconds() as f64 * 1e-3;
+        info!(
+            self,
+            "LOG End with ACCESSID=[{}] ACCESSTIME=[{}] PROCESSTIME=[{}]",
+            self.accessid,
+            self.accesstime.to_rfc3339(),
+            processtime,
+        );
+        self.inner = Logger::root(Discard, o!());
+        if let Some(ref path) = self.filepath {
+            let result = OpenOptions::new().append(true).open(path).map(|mut file| {
+                write!(file, "\n").map(|_| ()).and_then(|()| file.flush())
+            });
+            match result {
+                Ok(_) => {}
+                Err(e) => eprintln!("unable to write a newline: {}", e),
+            }
+        }
+    }
+
+    #[inline]
+    pub fn log(&self, record: &Record) {
+        self.inner.log(record);
+    }
+
+    pub fn get_inner(&self) -> &Logger {
+        &self.inner
+    }
+
+    pub fn config(&self) -> &Config {
+        &self.config
+    }
+}
+
+#[cfg(feature = "app")]
+impl Drop for AppLogger {
+    fn drop(&mut self) {
+        AppLogger::finalize(self);
     }
 }
