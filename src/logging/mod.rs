@@ -193,7 +193,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Config {
-            level: Level::Debug,
+            level: Level::Off,
             verbosity: Level::Trace,
             logdir: "./".to_string(),
             mkdir: false,
@@ -350,6 +350,7 @@ where
 }
 
 #[cfg(feature = "app")]
+#[derive(Debug)]
 pub struct AppLogger {
     inner: Logger,
     config: Config,
@@ -425,6 +426,10 @@ impl AppLogger {
 
     pub fn config(&self) -> &Config {
         &self.config
+    }
+
+    pub fn create(&self) -> Logger {
+        self.inner.new(o!())
     }
 }
 

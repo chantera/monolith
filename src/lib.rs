@@ -2,6 +2,11 @@ extern crate libc;
 extern crate rand;
 
 #[cfg(feature = "app")]
+#[macro_use]
+extern crate chan;
+#[cfg(feature = "app")]
+extern crate chan_signal;
+#[cfg(feature = "app")]
 extern crate uuid;
 #[cfg(feature = "logging")]
 extern crate chrono;

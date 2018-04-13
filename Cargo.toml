@@ -5,6 +5,8 @@ authors = ["Hiroki Teranishi <teranishihiroki@gmail.com>"]
 
 [dependencies]
 byteorder = { version = "1.2", optional = true }
+chan = { version = "0.1", optional = true }
+chan-signal = { version = "0.3", optional = true }
 chrono = { version = "0.4", optional = true }
 csv = { version = "1.0.0-beta", optional = true }
 libc = "0.2"
@@ -26,7 +28,7 @@ tempfile = "2.2"
 
 [features]
 default = ["logging", "models", "serialize", "training"]
-app = ["serialize", "uuid"]
+app = ["chan", "chan-signal", "logging", "serialize", "uuid"]
 dataset-conll = []
 logging = ["chrono", "slog", "slog-async", "slog-term"]
 models = ["primitiv"]
