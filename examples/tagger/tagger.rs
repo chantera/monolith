@@ -11,7 +11,7 @@ use std::error::Error;
 use std::path::Path;
 use std::result::Result;
 
-use monolith::logging::{LoggerBuilder, Stream};
+use monolith::logging;
 use monolith::preprocessing::Vocab;
 use monolith::training::Trainer;
 use primitiv::*;
@@ -109,14 +109,11 @@ fn main() {
         )
     ).get_matches();
 
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open("target/your_log_file_path.log")
-        .unwrap();
-    let logger =
-        LoggerBuilder::new(Stream::StdOut).build_with(LoggerBuilder::new(Stream::File(file)), o!());
+    let mut log_config = logging::Config::default();
+    log_config.logdir = "target".to_string();
+    log_config.mkdir = false;
+    log_config.filename = "your_log_file_path.log".to_string();
+    let logger = logging::create_logger(log_config).unwrap();
     info!(logger, "info");
     warn!(logger, "hello world");
 

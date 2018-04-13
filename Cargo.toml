@@ -5,6 +5,7 @@ authors = ["Hiroki Teranishi <teranishihiroki@gmail.com>"]
 
 [dependencies]
 byteorder = { version = "1.2", optional = true }
+chrono = { version = "0.4", optional = true }
 csv = { version = "1.0.0-beta", optional = true }
 libc = "0.2"
 pbr = { version = "1.0", optional = true }
@@ -27,7 +28,7 @@ tempfile = "2.2"
 default = ["logging", "models", "serialize", "training"]
 app = ["serialize", "uuid"]
 dataset-conll = []
-logging = ["slog", "slog-async", "slog-term"]
+logging = ["chrono", "slog", "slog-async", "slog-term"]
 models = ["primitiv"]
 syntax = []
 serialize = ["byteorder", "csv", "serde", "serde_derive", "serde_json", "rmp-serde"]

@@ -4,6 +4,8 @@ extern crate rand;
 #[cfg(feature = "app")]
 extern crate uuid;
 #[cfg(feature = "logging")]
+extern crate chrono;
+#[cfg(feature = "logging")]
 #[macro_use]
 extern crate slog;
 #[cfg(feature = "logging")]
