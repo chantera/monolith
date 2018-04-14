@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf, MAIN_SEPARATOR};
 use std::io as std_io;
 #[cfg(feature = "app")]
 use std::io::Write;
+use std::thread;
+use std::time::Duration;
 
 use chrono::prelude::*;
 pub use slog::FilterLevel as Level;
@@ -405,6 +407,7 @@ impl AppLogger {
         );
         self.inner = Logger::root(Discard, o!());
         if let Some(ref path) = self.filepath {
+            thread::sleep(Duration::from_millis(1));
             let result = OpenOptions::new().append(true).open(path).map(|mut file| {
                 write!(file, "\n").map(|_| ()).and_then(|()| file.flush())
             });
