@@ -1,6 +1,4 @@
 #[macro_use]
-extern crate clap;
-#[macro_use]
 extern crate monolith;
 #[macro_use]
 extern crate primitiv;
@@ -11,7 +9,7 @@ use std::error::Error;
 use std::path::Path;
 use std::result::Result;
 
-use monolith::app::App;
+use monolith::app::prelude::*;
 use monolith::preprocessing::Vocab;
 use monolith::training::Trainer;
 use primitiv::*;
@@ -90,51 +88,70 @@ fn test<P: AsRef<Path>>(_file: P) -> Result<(), Box<Error + Send + Sync>> {
     Ok(())
 }
 
-fn main() {
-    App::new().main(|config| {
-        let matches = clap_app!(
-            @app (app_from_crate!())
-            (@setting ArgRequiredElseHelp)
-            (@subcommand train =>
-                (about: "Trains model")
-                (@arg INPUT: +required "A training data file")
-                (@arg batch_size: -b --batchsize default_value("32") "Number of examples in each mini-batch")
-                (@arg device: -d --device default_value("-1") "GPU device ID (negative value indicates CPU)")
-                (@arg embed_file: --embed +takes_value "A file of pretrained word embeddings")
-                (@arg n_epochs: -e --epoch default_value("20") "Number of sweeps over the dataset to train")
-                (@arg valid_file: --vfile +takes_value "A validation data file")
-            )
-            (@subcommand test =>
-                (about: "Tests model")
-                (@arg INPUT: +required "A testing data file")
-            )
-        ).get_matches();
-
-        let result = match matches.subcommand() {
-            ("train", Some(m)) => {
-                println!("train with a file: {}", m.value_of("INPUT").unwrap());
-                let batch_size = m.value_of("batch_size").unwrap().parse::<usize>().unwrap();
-                let device_id = m.value_of("device").unwrap().parse::<i32>().unwrap();
-                let n_epochs = m.value_of("n_epochs").unwrap().parse::<u32>().unwrap();
-                let mut dev = select_device(device_id);
-                devices::set_default(&mut *dev);
-                train(
-                    m.value_of("INPUT").unwrap(),
-                    m.value_of("valid_file"),
-                    m.value_of("embed_file"),
-                    n_epochs,
-                    batch_size,
-                    &config.logger,
-                )
-            }
-            ("test", Some(m)) => {
-                println!("test with a file: {}", m.value_of("INPUT").unwrap());
-                let mut dev = select_device(0);
-                devices::set_default(&mut *dev);
-                test(m.value_of("INPUT").unwrap())
-            }
-            _ => unreachable!(),
-        };
-        result
-    }).run();
+#[derive(StructOpt, Debug)]
+#[structopt(name = "tagger")]
+struct Args {
+    #[structopt(flatten)]
+    common: CommonArgs,
+    #[structopt(subcommand)]
+    command: Command,
 }
+
+#[derive(StructOpt, Debug)]
+enum Command {
+    #[structopt(name = "train", about = "Trains model")]
+    Train(Train),
+    #[structopt(name = "test", about = "Tests model")]
+    Test(Test),
+}
+
+#[derive(StructOpt, Debug)]
+struct Train {
+    /// A training data file
+    input: String,
+    /// Number of examples in each mini-batch
+    #[structopt(long = "batch", default_value = "32")]
+    batch_size: usize,
+    /// GPU device ID (negative value indicates CPU)
+    #[structopt(long = "device", default_value = "-1")]
+    device: i32,
+    /// A file of pretrained word embeddings
+    embed_file: Option<String>,
+    /// Number of sweeps over the dataset to train
+    #[structopt(long = "epoch", default_value = "20")]
+    n_epochs: u32,
+    /// A validation data file
+    #[structopt(long = "vfile")]
+    valid_file: Option<String>,
+}
+
+#[derive(StructOpt, Debug)]
+struct Test {
+    /// A testing data file
+    input: String,
+    /// GPU device ID (negative value indicates CPU)
+    #[structopt(long = "device", default_value = "-1")]
+    device: i32,
+}
+
+main!(|args: Args, context: Context| match args.command {
+    Command::Train(ref c) => {
+        println!("train with a file: {}", c.input);
+        let mut dev = select_device(c.device);
+        devices::set_default(&mut *dev);
+        train(
+            &c.input,
+            c.valid_file.as_ref(),
+            c.embed_file.as_ref(),
+            c.n_epochs,
+            c.batch_size,
+            &context.logger,
+        )
+    }
+    Command::Test(ref c) => {
+        println!("test with a file: {}", c.input);
+        let mut dev = select_device(0);
+        devices::set_default(&mut *dev);
+        test(&c.input)
+    }
+});

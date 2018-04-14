@@ -8,6 +8,11 @@ extern crate chan;
 extern crate chan_signal;
 #[cfg(feature = "app")]
 extern crate uuid;
+#[cfg(feature = "app")]
+extern crate structopt;
+#[cfg(feature = "app")]
+#[macro_use]
+extern crate structopt_derive;
 #[cfg(feature = "logging")]
 extern crate chrono;
 #[cfg(feature = "logging")]
@@ -37,6 +42,7 @@ extern crate rmp_serde;
 extern crate pbr;
 
 #[cfg(feature = "app")]
+#[macro_use]
 pub mod app;
 #[macro_use]
 pub mod dataset;
