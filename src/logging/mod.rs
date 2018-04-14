@@ -44,11 +44,14 @@ pub enum Format {
     Compact,
 }
 
+const TIME_FORMAT: &'static str = "%b %d %H:%M:%S%.3f";
+
 #[derive(Debug)]
 pub struct LoggerBuilder {
     stream: Stream,
     level: Level,
     format: Format,
+    time_format: String,
 }
 
 impl LoggerBuilder {
@@ -57,6 +60,7 @@ impl LoggerBuilder {
             stream: stream,
             level: Level::Debug,
             format: Format::Full,
+            time_format: TIME_FORMAT.to_string(),
         }
     }
 
@@ -67,6 +71,11 @@ impl LoggerBuilder {
 
     pub fn format(mut self, f: Format) -> Self {
         self.format = f;
+        self
+    }
+
+    pub fn time_format<S: Into<String>>(mut self, f: S) -> Self {
+        self.time_format = f.into();
         self
     }
 
@@ -109,13 +118,21 @@ impl LoggerBuilder {
         &self,
         decorator: D,
     ) -> LevelFilter<Fuse<Async>> {
+        let time_format = self.time_format.clone();
+        let timestamp = move |io: &mut Write| -> std_io::Result<()> {
+            write!(io, "{}", Local::now().format(&time_format))
+        };
         let drain = match self.format {
             Format::Compact => {
-                let drain = CompactFormat::new(decorator).use_local_timestamp().build();
+                let drain = CompactFormat::new(decorator)
+                    .use_custom_timestamp(timestamp)
+                    .build();
                 Async::new(drain.fuse()).build()
             }
             Format::Full => {
-                let drain = FullFormat::new(decorator).use_local_timestamp().build();
+                let drain = FullFormat::new(decorator)
+                    .use_custom_timestamp(timestamp)
+                    .build();
                 Async::new(drain.fuse()).build()
             }
         };
@@ -189,6 +206,7 @@ pub struct Config {
     pub fileprefix: Option<String>,
     pub filesuffix: Option<String>,
     pub format: Format,
+    pub time_format: String,
     pub use_stderr: bool,
 }
 
@@ -204,6 +222,7 @@ impl Default for Config {
             fileprefix: None,
             filesuffix: None,
             format: Format::Full,
+            time_format: TIME_FORMAT.to_string(),
             use_stderr: false,
         }
     }
@@ -278,8 +297,12 @@ where
     let logger = LoggerBuilder::new(vstream)
         .level(c.verbosity)
         .format(c.format)
+        .time_format(&*c.time_format)
         .build_with(
-            LoggerBuilder::new(fstream).level(c.level).format(c.format),
+            LoggerBuilder::new(fstream)
+                .level(c.level)
+                .format(c.format)
+                .time_format(&*c.time_format),
             values,
         );
     Ok((logger, filepath))

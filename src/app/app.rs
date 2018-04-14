@@ -64,12 +64,16 @@ pub struct Config {
     pub logging: LogConfig,
 }
 
+const TIME_FORMAT: &'static str = "%Y-%m-%d %H:%M:%S%.3f";
+
 impl Default for Config {
     fn default() -> Self {
+        let mut log_config = LogConfig::default();
+        log_config.time_format = TIME_FORMAT.to_string();
         Config {
             handle_signal: true,
             exit_on_finish: false,
-            logging: LogConfig::default(),
+            logging: log_config,
         }
     }
 }
@@ -225,7 +229,7 @@ impl App {
     #[inline]
     fn postprocess(&mut self, code: i32) {
         let logger = self.logger.as_ref().unwrap();
-        info!(logger, "application finished. (code: {})", code);
+        info!(logger, "application finished (code: {})", code);
         info!(logger, "*** [DONE] ***");
     }
 }
