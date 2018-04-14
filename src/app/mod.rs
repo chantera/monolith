@@ -2,6 +2,7 @@ use std::error::Error;
 use std::io as std_io;
 use std::fmt;
 use std::fs;
+use std::mem;
 use std::path::PathBuf;
 use std::process;
 use std::thread;
@@ -63,104 +64,157 @@ impl fmt::Display for AppError {
     }
 }
 
+#[derive(Debug)]
+pub struct Context {
+    pub logger: Logger,
+}
+
+#[derive(Debug, Clone)]
+pub struct Config {
+    pub handle_signal: bool,
+    pub exit_on_finish: bool,
+    pub logging: LogConfig,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            handle_signal: true,
+            exit_on_finish: false,
+            logging: LogConfig::default(),
+        }
+    }
+}
+
 pub struct App {
-    main_fn: Box<FnMut(Logger) -> Result<(), Box<Error + Send + Sync>> + Send + 'static>,
-    handle_signal: bool,
-    exit_on_finish: bool,
-    log_config: LogConfig,
+    config: Config,
+    main_fn: Option<Box<FnMut(Context) -> Result<(), Box<Error + Send + Sync>> + Send + 'static>>,
+    receiver: Option<chan::Receiver<Signal>>,
+    logger: Option<AppLogger>,
+    context: Option<Context>,
 }
 
 impl App {
     pub fn new() -> Self {
+        App::with_config(Config::default())
+    }
+
+    pub fn with_config<C: Into<Config>>(config: C) -> Self {
         App {
-            main_fn: Box::new(|logger| {
-                info!(logger, "Hello World!");
-                Ok(())
-            }),
-            handle_signal: true,
-            exit_on_finish: false,
-            log_config: LogConfig::default(),
+            config: config.into(),
+            main_fn: None,
+            receiver: None,
+            logger: None,
+            context: None,
         }
     }
 
     pub fn main<F>(mut self, f: F) -> Self
     where
-        F: FnMut(Logger) -> Result<(), Box<Error + Send + Sync>> + Send + 'static,
+        F: FnMut(Context) -> Result<(), Box<Error + Send + Sync>> + Send + 'static,
     {
-        self.main_fn = Box::new(f);
+        self.main_fn = Some(Box::new(f));
         self
     }
 
-    pub fn run(self) {
-        let (mut main_fn, handle_signal, exit_on_finish, log_config) = (
-            self.main_fn,
-            self.handle_signal,
-            self.exit_on_finish,
-            self.log_config,
-        );
-        let signal = if handle_signal {
-            // `notify` must be called before any other threads are spawned in the process.
-            Some(chan_signal::notify(&[Signal::INT, Signal::TERM]))
-        } else {
-            None
+    pub fn run(mut self) {
+        let mut code = App::initialize(&mut self);
+        if code.is_ok() {
+            code = App::exec(&mut self);
         };
-        // an async logger spawns threads internally.
-        let code = match AppLogger::new(log_config) {
-            Ok(logger) => {
-                let result = if let Some(signal) = signal {
-                    let (sdone, rdone) = chan::sync(0);
-                    let child_logger = logger.create();
-                    thread::spawn(move || {
-                        sdone.send((*main_fn)(child_logger).map_err(|e| AppError::new(1, e)));
-                        let _ = sdone;
+        App::finalize(&mut self); // `finalize` must not fail.
+        if self.config.exit_on_finish {
+            let retcode = code.unwrap_or_else(|c| c);
+            process::exit(retcode);
+        }
+    }
+
+    #[inline]
+    fn exec(&mut self) -> Result<i32, i32> {
+        let mut main_fn = mem::replace(&mut self.main_fn, None).unwrap();
+        let receiver = mem::replace(&mut self.receiver, None);
+        let context = mem::replace(&mut self.context, None).unwrap();
+        let logger = self.logger.as_ref().unwrap();
+
+        info!(logger, "*** [START] ***");
+        let result = if let Some(ref signal) = receiver {
+            let (sdone, rdone) = chan::sync(0);
+            thread::spawn(move || {
+                sdone.send((*main_fn)(context).map_err(|e| AppError::new(1, e)));
+                let _ = sdone;
+            });
+            let mut retval;
+            chan_select! {
+                signal.recv() -> s => {
+                    let (code, err) = s.map(|val| {
+                        (signal_to_i32(val), format!("receive a signal: {:?}", val))
+                    }).unwrap_or_else(|| (1, "failed to receive a signal".to_string()));
+                    retval = Err(AppError::new(code, err));
+                },
+                rdone.recv() -> r => {
+                    retval = r.unwrap_or_else(|| {
+                        Err(AppError::new(1, "failed to receive a result"))
                     });
-                    let mut retval;
-                    chan_select! {
-                        signal.recv() -> s => {
-                            let (code, err) = s.map(|val| {
-                                (signal_to_i32(val), format!("receive a signal: {:?}", val))
-                            }).unwrap_or_else(|| (1, "failed to receive a signal".to_string()));
-                            retval = Err(AppError::new(code, err));
-                        },
-                        rdone.recv() -> r => {
-                            retval = r.unwrap_or_else(|| {
-                                Err(AppError::new(1, "failed to receive a result"))
-                            });
-                        }
-                    }
-                    retval
-                } else {
-                    (*main_fn)(logger.create()).map_err(|e| AppError::new(1, e))
-                };
-                let code = match result {
-                    Ok(_) => 0,
-                    Err(e) => {
-                        error!(logger, "{}", e);
-                        128 + e.code()
-                    }
-                };
-                drop(logger);
-                thread::sleep(Duration::from_millis(1));
-                code
+                }
+            }
+            retval
+        } else {
+            (*main_fn)(context).map_err(|e| AppError::new(1, e))
+        };
+        let (result, code) = match result {
+            Ok(_) => {
+                let c = 0;
+                (Ok(c), c)
+            }
+            Err(e) => {
+                error!(logger, "{}", e);
+                let c = 128 + e.code();
+                (Err(c), c)
+            }
+        };
+        info!(logger, "application finished. (code: {})", code);
+        info!(logger, "*** [DONE] ***");
+        result
+    }
+
+    #[inline]
+    fn initialize(&mut self) -> Result<i32, i32> {
+        if self.main_fn.is_none() {
+            eprintln!("`main` must be called before running");
+            return Err(1);
+        }
+        if self.config.handle_signal {
+            // `notify` must be called before any other threads are spawned in the process.
+            self.receiver = Some(chan_signal::notify(&[Signal::INT, Signal::TERM]));
+        }
+        match AppLogger::new(self.config.logging.clone()) {
+            // an async logger spawns threads internally.
+            Ok(logger) => {
+                let context = Context { logger: logger.create() };
+                self.logger = Some(logger);
+                self.context = Some(context);
+                Ok(0)
             }
             Err(e) => {
                 eprintln!("{}", e);
-                1
+                Err(1)
             }
-        };
-        if exit_on_finish {
-            process::exit(code);
         }
+    }
+
+    #[inline]
+    fn finalize(&mut self) {
+        self.main_fn = None;
+        self.logger = None;
+        self.receiver = None;
+        self.context = None;
+        thread::sleep(Duration::from_millis(1));
     }
 }
 
 impl fmt::Debug for App {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("App")
-            .field("handle_signal", &self.handle_signal)
-            .field("exit_on_finish", &self.exit_on_finish)
-            .field("log_config", &self.log_config)
-            .finish()
+        f.debug_struct("App").field("config", &self.config).finish()
     }
 }
 

@@ -91,7 +91,7 @@ fn test<P: AsRef<Path>>(_file: P) -> Result<(), Box<Error + Send + Sync>> {
 }
 
 fn main() {
-    App::new().main(|logger| {
+    App::new().main(|config| {
         let matches = clap_app!(
             @app (app_from_crate!())
             (@setting ArgRequiredElseHelp)
@@ -124,7 +124,7 @@ fn main() {
                     m.value_of("embed_file"),
                     n_epochs,
                     batch_size,
-                    &logger,
+                    &config.logger,
                 )
             }
             ("test", Some(m)) => {
