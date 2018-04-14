@@ -1,5 +1,6 @@
 use std::error::Error;
 use std::io as std_io;
+use std::env;
 use std::fmt;
 use std::fs;
 use std::mem;
@@ -130,54 +131,6 @@ impl App {
     }
 
     #[inline]
-    fn exec(&mut self) -> Result<i32, i32> {
-        let mut main_fn = mem::replace(&mut self.main_fn, None).unwrap();
-        let receiver = mem::replace(&mut self.receiver, None);
-        let context = mem::replace(&mut self.context, None).unwrap();
-        let logger = self.logger.as_ref().unwrap();
-
-        info!(logger, "*** [START] ***");
-        let result = if let Some(ref signal) = receiver {
-            let (sdone, rdone) = chan::sync(0);
-            thread::spawn(move || {
-                sdone.send((*main_fn)(context).map_err(|e| AppError::new(1, e)));
-                let _ = sdone;
-            });
-            let mut retval;
-            chan_select! {
-                signal.recv() -> s => {
-                    let (code, err) = s.map(|val| {
-                        (signal_to_i32(val), format!("receive a signal: {:?}", val))
-                    }).unwrap_or_else(|| (1, "failed to receive a signal".to_string()));
-                    retval = Err(AppError::new(code, err));
-                },
-                rdone.recv() -> r => {
-                    retval = r.unwrap_or_else(|| {
-                        Err(AppError::new(1, "failed to receive a result"))
-                    });
-                }
-            }
-            retval
-        } else {
-            (*main_fn)(context).map_err(|e| AppError::new(1, e))
-        };
-        let (result, code) = match result {
-            Ok(_) => {
-                let c = 0;
-                (Ok(c), c)
-            }
-            Err(e) => {
-                error!(logger, "{}", e);
-                let c = 128 + e.code();
-                (Err(c), c)
-            }
-        };
-        info!(logger, "application finished. (code: {})", code);
-        info!(logger, "*** [DONE] ***");
-        result
-    }
-
-    #[inline]
     fn initialize(&mut self) -> Result<i32, i32> {
         if self.main_fn.is_none() {
             eprintln!("`main` must be called before running");
@@ -203,12 +156,89 @@ impl App {
     }
 
     #[inline]
+    fn exec(&mut self) -> Result<i32, i32> {
+        self.preprocess();
+        let (result, code) = match self.process() {
+            Ok(_) => {
+                let c = 0;
+                (Ok(c), c)
+            }
+            Err(e) => {
+                error!(self.logger.as_ref().unwrap(), "{}", e);
+                let c = 128 + e.code();
+                (Err(c), c)
+            }
+        };
+        self.postprocess(code);
+        result
+    }
+
+    #[inline]
     fn finalize(&mut self) {
         self.main_fn = None;
         self.logger = None;
         self.receiver = None;
         self.context = None;
         thread::sleep(Duration::from_millis(1));
+    }
+
+    #[inline]
+    fn preprocess(&mut self) {
+        let logger = self.logger.as_ref().unwrap();
+        match utils::uname::uname() {
+            Ok(uname) => {
+                info!(logger, "uname: {}", uname);
+            }
+            Err(e) => {
+                warn!(logger, "unable get to uname: {}", e);
+            }
+        }
+        debug!(
+            logger,
+            "args: {}",
+            env::args().collect::<Vec<String>>().join(" ")
+        );
+        debug!(logger, "{:?}", self.config);
+        info!(logger, "*** [START] ***");
+    }
+
+    #[inline]
+    fn process(&mut self) -> Result<(), AppError> {
+        let mut main_fn = mem::replace(&mut self.main_fn, None).unwrap();
+        let receiver = mem::replace(&mut self.receiver, None);
+        let context = mem::replace(&mut self.context, None).unwrap();
+
+        if let Some(ref signal) = receiver {
+            let (sdone, rdone) = chan::sync(0);
+            thread::spawn(move || {
+                sdone.send((*main_fn)(context).map_err(|e| AppError::new(1, e)));
+                let _ = sdone;
+            });
+            let mut retval;
+            chan_select! {
+                signal.recv() -> s => {
+                    let (code, err) = s.map(|val| {
+                        (signal_to_i32(val), format!("receive a signal: {:?}", val))
+                    }).unwrap_or_else(|| (1, "failed to receive a signal".to_string()));
+                    retval = Err(AppError::new(code, err));
+                },
+                rdone.recv() -> r => {
+                    retval = r.unwrap_or_else(|| {
+                        Err(AppError::new(1, "failed to receive a result"))
+                    });
+                }
+            }
+            retval
+        } else {
+            (*main_fn)(context).map_err(|e| AppError::new(1, e))
+        }
+    }
+
+    #[inline]
+    fn postprocess(&mut self, code: i32) {
+        let logger = self.logger.as_ref().unwrap();
+        info!(logger, "application finished. (code: {})", code);
+        info!(logger, "*** [DONE] ***");
     }
 }
 
@@ -252,3 +282,8 @@ fn signal_to_i32(signal: Signal) -> i32 {
         Signal::__NonExhaustiveMatch => unreachable!(),
     }
 }
+
+// pub fn
+
+// app_args {
+// }
