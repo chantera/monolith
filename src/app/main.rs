@@ -1,4 +1,7 @@
+use std::path::PathBuf;
+
 use app::Config;
+use logging;
 
 pub trait FromArgs {
     fn from_args() -> Self
@@ -38,15 +41,22 @@ pub struct CommonArgs {
     /// Activate debug mode
     #[structopt(short = "d", long = "debug")]
     debug: bool,
-
+    /// Log directory
+    #[structopt(long = "logdir", parse(from_os_str))]
+    logdir: Option<PathBuf>,
     /// Verbose mode (-v, -vv, -vvv, etc.)
     #[structopt(short = "v", long = "verbose", parse(from_occurrences))]
     verbose: u8,
 }
 
 impl From<CommonArgs> for Config {
-    fn from(_c: CommonArgs) -> Config {
+    fn from(args: CommonArgs) -> Config {
         // TODO(chantera) implement
-        Config::default()
+        let mut config = Config::default();
+        if let Some(ref logdir) = args.logdir {
+            config.logging.logdir = logdir.to_string_lossy().into_owned();
+            config.logging.level = logging::Level::Debug;
+        }
+        config
     }
 }

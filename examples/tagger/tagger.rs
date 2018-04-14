@@ -108,7 +108,11 @@ enum Command {
 #[derive(StructOpt, Debug)]
 struct Train {
     /// A training data file
+    #[structopt(name = "INPUT")]
     input: String,
+    /// A validation data file
+    #[structopt(name = "VFILE")]
+    valid_file: Option<String>,
     /// Number of examples in each mini-batch
     #[structopt(long = "batch", default_value = "32")]
     batch_size: usize,
@@ -116,13 +120,11 @@ struct Train {
     #[structopt(long = "device", default_value = "-1")]
     device: i32,
     /// A file of pretrained word embeddings
+    #[structopt(long = "embed")]
     embed_file: Option<String>,
     /// Number of sweeps over the dataset to train
     #[structopt(long = "epoch", default_value = "20")]
     n_epochs: u32,
-    /// A validation data file
-    #[structopt(long = "vfile")]
-    valid_file: Option<String>,
 }
 
 #[derive(StructOpt, Debug)]
