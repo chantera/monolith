@@ -3,56 +3,30 @@ use std::io::{stderr, Stderr, stdout, Stdout, Write};
 use pbr::ProgressBar as ProgressBarImpl;
 use slog::Logger;
 
-use training::{Callback, TrainingInfo};
+use training::{Accuracy, Callback, TrainingInfo};
 
 #[derive(Debug)]
 pub struct Reporter {
     logger: Logger,
-    correct: u32,
-    total: u32,
 }
-
-pub struct ZeroDivisionError;
 
 impl Reporter {
     pub fn new(logger: Logger) -> Self {
-        Reporter {
-            logger: logger,
-            correct: 0,
-            total: 0,
-        }
+        Reporter { logger: logger }
     }
 
-    pub fn reset(&mut self) {
-        self.correct = 0;
-        self.total = 0;
-    }
-
-    pub fn count(&mut self, correct: u32, total: u32) {
-        self.correct += correct;
-        self.total += total;
-    }
-
-    pub fn accuracy(&self) -> Result<f32, ZeroDivisionError> {
-        if self.total > 0 {
-            Ok((self.correct as f32) / (self.total as f32))
-        } else {
-            Err(ZeroDivisionError)
-        }
-    }
-
-    fn report(
+    pub fn report(
         &self,
         label: &str,
         epoch: u32,
         n_samples: usize,
         loss: f32,
-        accuracy: Option<Result<f32, ZeroDivisionError>>,
+        accuracy: Option<&Accuracy>,
     ) {
         match accuracy {
-            Some(result) => {
-                match result {
-                    Ok(acc) => {
+            Some(acc) => {
+                match acc.accuracy() {
+                    Ok(acc_value) => {
                         info!(
                             self.logger,
                             "[{}] epoch {} - #samples: {}, loss: {:.8}, accuracy: {:.8}",
@@ -60,7 +34,7 @@ impl Reporter {
                             epoch,
                             n_samples,
                             loss,
-                            acc
+                            acc_value,
                         );
                     }
                     Err(_) => {
@@ -89,60 +63,25 @@ impl Reporter {
     }
 }
 
-impl<U> Callback<Option<U>> for Reporter {
-    fn on_epoch_train_end(&mut self, info: &TrainingInfo<Option<U>>) {
+impl<U> Callback<U> for Reporter {
+    fn on_epoch_train_end(&mut self, info: &TrainingInfo<U>) {
         self.report(
             "training",
             info.epoch,
             info.data_size,
             info.loss.unwrap(),
-            None,
+            info.accuracy.as_ref(),
         );
     }
 
-    fn on_epoch_validate_end(&mut self, info: &TrainingInfo<Option<U>>) {
+    fn on_epoch_validate_end(&mut self, info: &TrainingInfo<U>) {
         self.report(
             "validation",
             info.epoch,
             info.data_size,
             info.loss.unwrap(),
-            None,
+            info.accuracy.as_ref(),
         );
-    }
-}
-
-impl Callback<(u32, u32)> for Reporter {
-    fn on_epoch_train_begin(&mut self, _info: &TrainingInfo<(u32, u32)>) {
-        self.reset();
-    }
-
-    fn on_epoch_train_end(&mut self, info: &TrainingInfo<(u32, u32)>) {
-        self.report(
-            "training",
-            info.epoch,
-            info.data_size,
-            info.loss.unwrap(),
-            Some(self.accuracy()),
-        );
-    }
-
-    fn on_epoch_validate_begin(&mut self, _info: &TrainingInfo<(u32, u32)>) {
-        self.reset();
-    }
-
-    fn on_epoch_validate_end(&mut self, info: &TrainingInfo<(u32, u32)>) {
-        self.report(
-            "validation",
-            info.epoch,
-            info.data_size,
-            info.loss.unwrap(),
-            Some(self.accuracy()),
-        );
-    }
-
-    fn on_batch_end(&mut self, info: &TrainingInfo<(u32, u32)>) {
-        let (correct, total) = info.output.unwrap();
-        self.count(correct, total);
     }
 }
 
