@@ -3,9 +3,10 @@ use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::path::{Path, PathBuf, MAIN_SEPARATOR};
 use std::io as std_io;
-#[cfg(feature = "app")]
 use std::io::Write;
+#[cfg(feature = "app")]
 use std::thread;
+#[cfg(feature = "app")]
 use std::time::Duration;
 
 use chrono::prelude::*;
