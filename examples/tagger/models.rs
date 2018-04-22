@@ -334,28 +334,6 @@ impl CharCNN {
             .iter()
             .map(|seq| self.forward_sequence(seq, train))
             .collect()
-        /*
-        let mut lengths = Vec::with_capacity(xs.as_ref().len());
-        let xs_flattened: Vec<&IDs> = xs.as_ref()
-            .into_iter()
-            .flat_map(|seq| {
-                let seq = seq.as_ref();
-                lengths.push(seq.len() as u32);
-                seq.into_iter()
-            })
-            .collect();
-        let ys_merged = self.forward_sequence(xs_flattened, train);
-        let mut begin = 0;
-        let ys = lengths
-            .into_iter()
-            .map(|length| {
-                let y = F::batch::slice(&ys_merged, begin, begin + length);
-                begin += length;
-                y
-            })
-            .collect();
-        ys
-        */
     }
 
     pub fn forward_sequence<Sequence, IDs>(&mut self, xs: Sequence, train: bool) -> Node
