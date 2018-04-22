@@ -45,7 +45,7 @@ pub enum Format {
     Compact,
 }
 
-const TIME_FORMAT: &'static str = "%b %d %H:%M:%S%.3f";
+static TIME_FORMAT: &'static str = "%b %d %H:%M:%S%.3f";
 
 #[derive(Debug)]
 pub struct LoggerBuilder {

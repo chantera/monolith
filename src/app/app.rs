@@ -64,7 +64,7 @@ pub struct Config {
     pub logging: LogConfig,
 }
 
-const TIME_FORMAT: &'static str = "%Y-%m-%d %H:%M:%S%.3f";
+static TIME_FORMAT: &'static str = "%Y-%m-%d %H:%M:%S%.3f";
 
 impl Default for Config {
     fn default() -> Self {
