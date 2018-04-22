@@ -35,7 +35,7 @@ static UNKNOWN_TOKEN: &'static str = "<UNK>";
 
 impl Vocab {
     pub fn new() -> Self {
-        Self::with_capacity_and_default_token(DEFAULT_CAPACITY, UNKNOWN_TOKEN.to_string())
+        Self::with_capacity_and_default_token(DEFAULT_CAPACITY, UNKNOWN_TOKEN)
     }
 
     #[cfg(feature = "serialize")]
@@ -117,22 +117,25 @@ impl Vocab {
         }
     }
 
-    pub fn with_default_token(default_token: String) -> Self {
+    pub fn with_default_token<S: Into<String>>(default_token: S) -> Self {
         Self::with_capacity_and_default_token(DEFAULT_CAPACITY, default_token)
     }
 
     pub fn with_capacity(capacity: usize) -> Self {
-        Self::with_capacity_and_default_token(capacity, UNKNOWN_TOKEN.to_string())
+        Self::with_capacity_and_default_token(capacity, UNKNOWN_TOKEN)
     }
 
-    pub fn with_capacity_and_default_token(capacity: usize, default_token: String) -> Self {
+    pub fn with_capacity_and_default_token<S: Into<String>>(
+        capacity: usize,
+        default_token: S,
+    ) -> Self {
         let mut v = Vocab {
             s2i: HashMap::with_capacity(capacity),
             i2s: Vec::with_capacity(capacity),
             freq: Vec::with_capacity(capacity),
             embeddings: None,
         };
-        v.add(default_token);
+        v.add(default_token.into());
         v
     }
 
