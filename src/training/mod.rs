@@ -3,6 +3,7 @@ use std::fmt;
 use std::io::Stderr;
 use std::marker::PhantomData;
 use std::ops;
+use std::rc::Rc;
 
 use primitiv::{Graph, Node, Optimizer};
 use slog::Logger;
@@ -293,7 +294,7 @@ where
         }
     }
 
-    pub fn enable_report(&mut self, logger: Logger) {
+    pub fn enable_report<L: Into<Rc<Logger>>>(&mut self, logger: L) {
         self.add_callback("reporter", callbacks::Reporter::new(logger));
     }
 

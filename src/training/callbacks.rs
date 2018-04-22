@@ -1,4 +1,5 @@
 use std::io::{stderr, Stderr, stdout, Stdout, Write};
+use std::rc::Rc;
 
 use pbr::ProgressBar as ProgressBarImpl;
 use slog::Logger;
@@ -7,12 +8,12 @@ use training::{Accuracy, Callback, TrainingInfo};
 
 #[derive(Debug)]
 pub struct Reporter {
-    logger: Logger,
+    logger: Rc<Logger>,
 }
 
 impl Reporter {
-    pub fn new(logger: Logger) -> Self {
-        Reporter { logger: logger }
+    pub fn new<L: Into<Rc<Logger>>>(logger: L) -> Self {
+        Reporter { logger: logger.into() }
     }
 
     pub fn report(
