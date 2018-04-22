@@ -1,5 +1,7 @@
-use std::borrow::Borrow;
+use std::borrow::{Borrow, Cow};
 use std::collections::HashMap;
+use std::error;
+use std::fmt;
 #[cfg(feature = "serialize")]
 use std::io as std_io;
 #[cfg(feature = "serialize")]
@@ -24,7 +26,7 @@ use uuid::{Uuid, NAMESPACE_OID as UUID_NAMESPACE_OID};
 pub struct Vocab {
     s2i: HashMap<RcString, u32>,
     i2s: Vec<RcString>,
-    freq: Vec<u32>,
+    freq: Vec<usize>,
     embeddings: Option<Vec<Vec<f32>>>,
 }
 
@@ -134,7 +136,8 @@ impl Vocab {
         v
     }
 
-    pub fn add(&mut self, word: String) -> u32 {
+    pub fn add<'a, S: Into<Cow<'a, str>> + ?Sized>(&mut self, word: S) -> u32 {
+        let word = word.into();
         match self.s2i.get(&word[..]) {
             Some(v) => {
                 let id = *v;
@@ -146,10 +149,10 @@ impl Vocab {
             _ => {}
         }
         let id = self.i2s.len() as u32;
-        let rc = RcString::new(word);
+        let rc = RcString::new(word.into_owned());
         self.i2s.push(rc.clone());
         self.s2i.insert(rc, id);
-        self.freq.push(0);
+        self.freq.push(1);
         id
     }
 
@@ -157,7 +160,23 @@ impl Vocab {
         self.s2i.get(word.borrow()).map(|v| *v).unwrap_or_else(|| 0)
     }
 
-    pub fn freq(&self, id: u32) -> Option<u32> {
+    pub fn contains<Q: Borrow<str> + ?Sized>(&self, word: &Q) -> bool {
+        self.s2i.contains_key(word.borrow())
+    }
+
+    pub fn increment(&mut self, id: u32) -> Option<usize> {
+        if id == 0 {
+            debug_assert!(self.freq[id as usize] == 1);
+            Some(1)
+        } else {
+            self.freq.get_mut(id as usize).map(|count| {
+                *count += 1;
+                *count
+            })
+        }
+    }
+
+    pub fn freq(&self, id: u32) -> Option<usize> {
         self.freq.get(id as usize).map(|v| *v)
     }
 
@@ -169,13 +188,81 @@ impl Vocab {
         self.i2s.len()
     }
 
-    pub fn embed(&self) -> Option<&Vec<Vec<f32>>> {
-        self.embeddings.as_ref()
+    pub fn embed(&self) -> Result<&Vec<Vec<f32>>, Error> {
+        match self.embeddings.as_ref() {
+            Some(embeddings) => {
+                if self.size() == embeddings.len() {
+                    Ok(embeddings)
+                } else {
+                    Err(Error::InvalidOperation("uninitialized words exist"))
+                }
+            }
+            None => Err(Error::InvalidOperation("vocab does not use embeddings")),
+        }
+    }
+
+    #[cfg(feature = "app")]
+    pub fn init_embed(&mut self) -> Result<(), Error> {
+        let vocab_size = self.size();
+        match self.embeddings.as_mut() {
+            Some(embeddings) => {
+                let num_uninitialized_words = vocab_size - embeddings.len();
+                if num_uninitialized_words == 0 {
+                    return Ok(());
+                }
+                embeddings.reserve(num_uninitialized_words);
+                let dim = embeddings[0].len();
+                let uniform = distributions::range::RangeFloat::<f32>::new(-1.0, 1.0);
+                let mut rng = thread_rng();
+                for _ in 0..num_uninitialized_words {
+                    let mut value = Vec::with_capacity(dim);
+                    for _ in 0..dim {
+                        value.push(uniform.sample(&mut rng));
+                    }
+                    embeddings.push(value);
+                }
+                Ok(())
+            }
+            None => Err(Error::InvalidOperation("vocab does not use embeddings")),
+        }
+    }
+
+    pub fn has_embed(&self) -> bool {
+        self.embeddings.is_some()
     }
 }
 
 #[cfg(feature = "app")]
 impl_cache!(Vocab);
+
+#[derive(Debug)]
+pub enum Error {
+    InvalidOperation(&'static str),
+}
+
+impl Error {
+    pub fn as_str(&self) -> &'static str {
+        match *self {
+            Error::InvalidOperation(message) => message,
+        }
+    }
+}
+
+impl error::Error for Error {
+    fn description(&self) -> &str {
+        self.as_str()
+    }
+
+    fn cause(&self) -> Option<&error::Error> {
+        None
+    }
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
 
 trait Tokenize {
     fn tokenize(sentence: &str) -> Vec<String>;

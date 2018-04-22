@@ -42,9 +42,16 @@ impl<T: Phrasal> Preprocess<T> for Preprocessor {
         let mut word_ids = vec![];
         let mut char_ids = vec![];
         let mut pos_ids = vec![];
+        let fix_word = self.word_v.has_embed();
         x.iter().for_each(|token| {
             let form = token.form();
-            word_ids.push(self.word_v.add(form.to_lowercase()));
+            word_ids.push(if fix_word {
+                let id = self.word_v.get(&form.to_lowercase());
+                self.word_v.increment(id);
+                id
+            } else {
+                self.word_v.add(form.to_lowercase())
+            });
             char_ids.push(
                 token
                     .form()
