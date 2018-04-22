@@ -4,6 +4,8 @@ pub use monolith::dataset::Load;
 use monolith::preprocessing::Preprocess;
 use monolith::preprocessing::Vocab;
 
+static CHAR_PADDING: &'static str = "<PAD>";
+
 /// (word_ids, char_ids, tag_ids) of a sentence.
 pub type Sample = (Vec<u32>, Vec<Vec<u32>>, Vec<u32>);
 
@@ -15,10 +17,13 @@ pub struct Preprocessor {
 
 impl Preprocessor {
     pub fn new(word_v: Vocab) -> Self {
+        let mut char_v = Vocab::new();
+        let pad_id = char_v.add(CHAR_PADDING);
+        assert!(pad_id == 1);
         Preprocessor {
             word_v: word_v,
-            char_v: Vocab::new(),
-            pos_v: Vocab::with_default_token("NN".to_string()),
+            char_v: char_v,
+            pos_v: Vocab::with_default_token("NN"),
         }
     }
 
@@ -43,7 +48,7 @@ impl<T: Phrasal> Preprocess<T> for Preprocessor {
         let mut char_ids = vec![];
         let mut pos_ids = vec![];
         let fix_word = self.word_v.has_embed();
-        x.iter().for_each(|token| {
+        x.iter().skip(1).for_each(|token| {
             let form = token.form();
             word_ids.push(if fix_word {
                 let id = self.word_v.get(&form.to_lowercase());
@@ -68,7 +73,7 @@ impl<T: Phrasal> Preprocess<T> for Preprocessor {
         let mut word_ids = vec![];
         let mut char_ids = vec![];
         let mut pos_ids = vec![];
-        x.iter().for_each(|token| {
+        x.iter().skip(1).for_each(|token| {
             let form = token.form();
             word_ids.push(self.word_v.get(&form.to_lowercase()));
             char_ids.push(

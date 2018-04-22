@@ -51,10 +51,16 @@ fn train<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
             None => None,
         };
         let preprocessor = loader.dispose();
+        let word_vocab = preprocessor.word_vocab();
 
-        let mut model = TaggerBuilder::new()
-            .word(preprocessor.word_vocab().size(), 100)
-            .char(preprocessor.char_vocab().size(), 32)
+        let mut builder = TaggerBuilder::new();
+        builder = if word_vocab.has_embed() {
+            builder.word_embed(word_vocab.embed()?)
+        } else {
+            builder.word(word_vocab.size(), 100)
+        };
+        let mut model = builder
+            .char(preprocessor.char_vocab().size(), 50)
             .lstm(200)
             .mlp(100)
             .dropout(0.5)
