@@ -8,9 +8,9 @@ use primitiv::node_functions as F;
 pub struct Conv2D {
     model: Model,
     pw: Parameter,
-    padding: (u32, u32),
-    stride: (u32, u32),
-    dilation: (u32, u32),
+    pub padding: (u32, u32),
+    pub stride: (u32, u32),
+    pub dilation: (u32, u32),
 }
 
 impl Conv2D {

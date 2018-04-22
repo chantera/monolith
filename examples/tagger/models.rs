@@ -301,9 +301,8 @@ impl CharCNN {
         self.embed.init(vocab_size, embed_size);
         self.pad_width = window_size / 2;
         let kernel = (embed_size, window_size);
-        let padding = (0, self.pad_width);
-        let stride = (embed_size, 1);
-        self.conv = Conv2D::new(padding, stride, (1, 1));
+        self.conv.padding = (0, self.pad_width);
+        self.conv.stride = (embed_size, 1);
         self.conv.init(1, out_size, kernel);
     }
 
