@@ -66,6 +66,18 @@ impl Embed {
             .map(|x| F::pick(&lookup, x.as_ref(), 1))
             .collect()
     }
+
+    pub fn initialized(&self) -> bool {
+        self.lookup.valid()
+    }
+
+    pub fn embed_size(&self) -> u32 {
+        self.lookup.shape().at(0)
+    }
+
+    pub fn vocab_size(&self) -> usize {
+        self.lookup.shape().at(1) as usize
+    }
 }
 
 impl_model!(Embed, model);
