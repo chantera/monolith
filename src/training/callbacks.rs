@@ -9,11 +9,15 @@ use training::{Accuracy, Callback, TrainingInfo};
 #[derive(Debug)]
 pub struct Reporter {
     logger: Rc<Logger>,
+    interval: u32,
 }
 
 impl Reporter {
-    pub fn new<L: Into<Rc<Logger>>>(logger: L) -> Self {
-        Reporter { logger: logger.into() }
+    pub fn new<L: Into<Rc<Logger>>>(logger: L, interval: u32) -> Self {
+        Reporter {
+            logger: logger.into(),
+            interval: interval,
+        }
     }
 
     pub fn report(
@@ -66,23 +70,27 @@ impl Reporter {
 
 impl<U> Callback<U> for Reporter {
     fn on_epoch_train_end(&mut self, info: &TrainingInfo<U>) {
-        self.report(
-            "training",
-            info.epoch,
-            info.data_size,
-            info.loss.unwrap(),
-            info.accuracy.as_ref(),
-        );
+        if info.epoch % self.interval == 0 {
+            self.report(
+                "training",
+                info.epoch,
+                info.data_size,
+                info.loss.unwrap(),
+                info.accuracy.as_ref(),
+            );
+        }
     }
 
     fn on_epoch_validate_end(&mut self, info: &TrainingInfo<U>) {
-        self.report(
-            "validation",
-            info.epoch,
-            info.data_size,
-            info.loss.unwrap(),
-            info.accuracy.as_ref(),
-        );
+        if info.epoch % self.interval == 0 {
+            self.report(
+                "validation",
+                info.epoch,
+                info.data_size,
+                info.loss.unwrap(),
+                info.accuracy.as_ref(),
+            );
+        }
     }
 }
 

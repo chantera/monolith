@@ -84,7 +84,7 @@ fn train<P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path>>(
         (loss, accuracy)
     });
     trainer.show_progress();
-    trainer.enable_report(logger.new(o!()));
+    trainer.enable_report(logger.new(o!()), 1);
     trainer.fit(train_dataset, valid_dataset, n_epochs, batch_size);
 
     Ok(())

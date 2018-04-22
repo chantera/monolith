@@ -294,8 +294,8 @@ where
         }
     }
 
-    pub fn enable_report<L: Into<Rc<Logger>>>(&mut self, logger: L) {
-        self.add_callback("reporter", callbacks::Reporter::new(logger));
+    pub fn enable_report<L: Into<Rc<Logger>>>(&mut self, logger: L, interval: u32) {
+        self.add_callback("reporter", callbacks::Reporter::new(logger, interval));
     }
 
     pub fn show_progress(&mut self) {
