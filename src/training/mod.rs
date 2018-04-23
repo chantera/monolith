@@ -83,15 +83,15 @@ impl_from_for_output!(2: U2, 3: U3);
 impl_from_for_output!(2: U2);
 impl_from_for_output!();
 
-pub struct Trainer<O, F, T, U> {
+pub struct Trainer<'a, O, F, T, U> {
     optimizer: O,
     forward: F,
     _sample_type: PhantomData<T>,
     _output_type: PhantomData<U>,
-    callbacks: Vec<(u32, usize, String, Box<Callback<U>>)>,
+    callbacks: Vec<(u32, usize, String, Box<Callback<U> + 'a>)>,
 }
 
-impl<O: Optimizer, F, T, U, FO> Trainer<O, F, T, U>
+impl<'a, O: Optimizer, F, T, U, FO> Trainer<'a, O, F, T, U>
 where
     F: FnMut(Vec<&T>, bool) -> FO,
     FO: Into<ForwardFnOutput<U>>,
@@ -200,15 +200,11 @@ where
         );
     }
 
-    pub fn add_callback<S: Into<String>, C: Callback<U> + 'static>(
-        &mut self,
-        name: S,
-        callback: C,
-    ) {
+    pub fn add_callback<S: Into<String>, C: Callback<U> + 'a>(&mut self, name: S, callback: C) {
         self.add_callback_with_priority(name, callback, 1000);
     }
 
-    pub fn add_callback_with_priority<S: Into<String>, C: Callback<U> + 'static>(
+    pub fn add_callback_with_priority<S: Into<String>, C: Callback<U> + 'a>(
         &mut self,
         name: S,
         callback: C,
