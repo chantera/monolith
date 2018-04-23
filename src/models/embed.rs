@@ -9,6 +9,7 @@ use primitiv::node_functions as F;
 pub struct Embed {
     model: Model,
     lookup: Parameter,
+    pub update_enabled: bool,
 }
 
 impl Embed {
@@ -16,6 +17,7 @@ impl Embed {
         let mut m = Embed {
             model: Model::new(),
             lookup: Parameter::new(),
+            update_enabled: true,
         };
         m.model.add_parameter("lookup", &mut m.lookup);
         m
@@ -60,7 +62,10 @@ impl Embed {
         Batch: AsRef<[IDs]>,
         IDs: AsRef<[u32]>,
     {
-        let lookup = F::parameter(&mut self.lookup);
+        let mut lookup = F::parameter(&mut self.lookup);
+        if !self.update_enabled {
+            lookup = F::stop_gradient(lookup);
+        }
         xs.as_ref()
             .iter()
             .map(|x| F::pick(&lookup, x.as_ref(), 1))

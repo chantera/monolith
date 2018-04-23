@@ -55,6 +55,7 @@ impl Tagger {
         out_size: usize,
     ) {
         self.word_embed.init(word_vocab_size, word_embed_size);
+        self.word_embed.update_enabled = true;
         self.init_common(
             char_vocab_size,
             char_feature_size,
@@ -77,6 +78,7 @@ impl Tagger {
         Values: AsRef<[f32]>,
     {
         self.word_embed.init_by_values(word_embed);
+        self.word_embed.update_enabled = false;
         self.init_common(
             char_vocab_size,
             char_feature_size,
@@ -355,11 +357,7 @@ impl CharCNN {
             .collect::<Vec<_>>();
         let xs = F::batch::concat(xs);
         let hs = self.conv.forward(xs);
-        let mask = F::stop_gradient(F::broadcast(
-            F::input([1, out_len as u32, 1], &mask),
-            2,
-            hs.shape().at(2),
-        ));
+        let mask = F::broadcast(F::input([1, out_len as u32, 1], &mask), 2, hs.shape().at(2));
 
         // TODO(chantera) use max
         let s = hs.shape();
