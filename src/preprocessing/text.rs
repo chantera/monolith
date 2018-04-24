@@ -13,13 +13,14 @@ use io::cache::{self, FromCache, IntoCache};
 use io::embedding as embed_io;
 use lang::RcString;
 #[cfg(feature = "serialize")]
-use rand::thread_rng;
-#[cfg(feature = "serialize")]
 use rand::distributions;
 #[cfg(feature = "serialize")]
 use rand::distributions::range::RangeImpl;
 #[cfg(feature = "app")]
 use uuid::{Uuid, NAMESPACE_OID as UUID_NAMESPACE_OID};
+
+#[cfg(feature = "serialize")]
+use utils::rand::thread_rng;
 
 #[derive(Debug)]
 #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]

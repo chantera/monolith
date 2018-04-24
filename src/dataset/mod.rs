@@ -1,4 +1,3 @@
-use std::cell::RefCell;
 use std::cmp::min;
 use std::io::Result as IOResult;
 use std::marker::PhantomData;
@@ -7,15 +6,12 @@ use std::path::Path;
 use std::slice::Iter;
 use std::usize::MAX as USIZE_MAX;
 
-use rand::{Rng, thread_rng, ThreadRng};
-
 use io::{BufFileReader, FileOpen, Read};
 use preprocessing::Preprocess;
+use utils::rand::{Rng, thread_rng};
 
 #[cfg(feature = "dataset-conll")]
 pub mod conll;
-
-thread_local!(static RNG: RefCell<ThreadRng> = RefCell::new(thread_rng()));
 
 pub struct Batches<'a, T: 'a> {
     batch_size: usize,
@@ -78,7 +74,7 @@ impl<T> Dataset<T> {
     pub fn batch<'a>(&'a self, size: usize, shuffle: bool) -> Batches<'a, T> {
         let mut indices = (0..self.items.len()).collect::<Vec<_>>();
         if shuffle {
-            RNG.with(|cell| cell.borrow_mut().shuffle(&mut indices));
+            thread_rng().shuffle(&mut indices);
         }
         Batches {
             batch_size: size,
