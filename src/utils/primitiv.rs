@@ -28,6 +28,7 @@ pub fn select_device(id: i32) -> Box<Device> {
 #[cfg(all(feature = "primitiv-cuda", not(feature = "primitiv-eigen")))]
 pub fn select_device(id: i32) -> Box<Device> {
     if id >= 0 {
+        let id = id as u32;
         if let Some(seed) = env_seed() {
             let seed = seed as u32;
             eprintln!("Use CUDA device: id={}, seed={}", id, seed);
