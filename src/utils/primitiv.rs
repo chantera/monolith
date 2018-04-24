@@ -40,7 +40,7 @@ pub fn select_device(id: i32) -> Box<Device> {
         if let Some(seed) = env_seed() {
             let seed = seed as u32;
             eprintln!("Use Naive device: seed={}", seed);
-            Box::new(devices::Naive::new_with_seed())
+            Box::new(devices::Naive::new_with_seed(seed))
         } else {
             eprintln!("Use Naive device");
             Box::new(devices::Naive::new())
@@ -67,7 +67,7 @@ pub fn select_device(id: i32) -> Box<Device> {
     if let Some(seed) = env_seed() {
         let seed = seed as u32;
         eprintln!("Use Naive device: seed={}", seed);
-        Box::new(devices::Naive::new_with_seed())
+        Box::new(devices::Naive::new_with_seed(seed))
     } else {
         eprintln!("Use Naive device");
         Box::new(devices::Naive::new())
