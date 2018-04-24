@@ -78,7 +78,7 @@ impl<U> Callback<U> for Reporter {
                 "training",
                 info.epoch,
                 info.data_size,
-                info.loss.unwrap(),
+                info.loss.unwrap() / (info.batch_index.unwrap() + 1) as f32,
                 info.accuracy.as_ref(),
             );
         }
@@ -90,7 +90,7 @@ impl<U> Callback<U> for Reporter {
                 "validation",
                 info.epoch,
                 info.data_size,
-                info.loss.unwrap(),
+                info.loss.unwrap() / (info.batch_index.unwrap() + 1) as f32,
                 info.accuracy.as_ref(),
             );
         }
