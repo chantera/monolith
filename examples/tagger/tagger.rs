@@ -13,15 +13,14 @@ use monolith::app::prelude::*;
 use monolith::preprocessing::Vocab;
 use monolith::training::Trainer;
 use monolith::training::callbacks::Saver;
+use monolith::utils::primitiv as primitiv_utils;
 use primitiv::*;
 use slog::Logger;
 
 use self::dataset::*;
 use self::models::*;
-use self::utils::*;
 mod dataset;
 mod models;
-mod utils;
 
 fn train<P1, P2, P3, P4>(
     train_file: P1,
@@ -167,7 +166,7 @@ struct Test {
 main!(|args: Args, context: Context| match args.command {
     Command::Train(ref c) => {
         println!("train with a file: {:?}", c.input);
-        let mut dev = select_device(c.device);
+        let mut dev = primitiv_utils::select_device(c.device);
         devices::set_default(&mut *dev);
         train(
             &c.input,
@@ -181,7 +180,7 @@ main!(|args: Args, context: Context| match args.command {
     }
     Command::Test(ref c) => {
         println!("test with a file: {:?}", c.input);
-        let mut dev = select_device(0);
+        let mut dev = primitiv_utils::select_device(0);
         devices::set_default(&mut *dev);
         test(&c.input)
     }

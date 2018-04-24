@@ -17,31 +17,44 @@ pub struct ThreadRng {
     rng: Rc<UnsafeCell<ReseedingRng<Hc128Core, IsaacRng>>>,
 }
 
+pub fn env_seed() -> Option<u64> {
+    ENV_SEED.with(|seed| seed.map(|ref v| *v))
+}
+
 thread_local!(
-    static THREAD_RNG_KEY: Rc<UnsafeCell<ReseedingRng<Hc128Core, IsaacRng>>> = {
-        let mut seeding_source = match utils::env::var::<_, u64>(ENV_RNG_SEED) {
-            Ok(val) => {
-                IsaacRng::new_from_u64(val)
+    static ENV_SEED: Option<u64> = {
+        match utils::env::var::<_, u64>(ENV_RNG_SEED) {
+            Ok(val) => Some(val),
+            Err(e) => {
+                match e {
+                    utils::env::VarError::NotPresent => None,
+                    _ => {
+                        panic!(
+                            "could not retrieve environment variable `{}`: {}",
+                            ENV_RNG_SEED,
+                            e
+                        );
+                    }
+                }
             }
-            Err(e) =>  match e {
-                utils::env::VarError::NotPresent => {
-                    IsaacRng::from_rng(EntropyRng::new()).unwrap_or_else(|err| {
-                        panic!("could not initialize thread_rng: {}", err);
-                    })
-                }
-                _ => {
-                    panic!("could not retrieve environment variable `{}`: {}", ENV_RNG_SEED, e);
-                }
+        }
+    };
+
+    static THREAD_RNG_KEY: Rc<UnsafeCell<ReseedingRng<Hc128Core, IsaacRng>>> = {
+        let mut seeding_source = match env_seed() {
+            Some(val) => IsaacRng::new_from_u64(val),
+            None => {
+                IsaacRng::from_rng(EntropyRng::new()).unwrap_or_else(|err| {
+                    panic!("could not initialize thread_rng: {}", err);
+                })
             }
         };
         let r = Hc128Core::from_rng(&mut seeding_source).unwrap_or_else(|err| {
             panic!("could not initialize thread_rng: {}", err);
         });
-        let rng = ReseedingRng::new(r,
-                                    THREAD_RNG_RESEED_THRESHOLD,
-                                    seeding_source);
+        let rng = ReseedingRng::new(r, THREAD_RNG_RESEED_THRESHOLD, seeding_source);
         Rc::new(UnsafeCell::new(rng))
-    }
+    };
 );
 
 pub fn thread_rng() -> ThreadRng {

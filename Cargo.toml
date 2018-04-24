@@ -38,9 +38,9 @@ syntax = []
 serialize = ["byteorder", "csv", "serde", "serde_derive", "serde_json", "rmp-serde"]
 training = ["logging", "models", "pbr"]
 
-primitiv-cuda = ["primitiv/cuda"]
-primitiv-eigen = ["primitiv/eigen"]
-primitiv-opencl = ["primitiv/opencl"]
+primitiv-cuda = ["models", "primitiv/cuda"]
+primitiv-eigen = ["models", "primitiv/eigen"]
+primitiv-opencl = ["models", "primitiv/opencl"]
 
 [[example]]
 name = "tagger"
