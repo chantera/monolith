@@ -1,5 +1,6 @@
 extern crate monolith;
 
+#[cfg(feature = "app")]
 use monolith::io::cache::{Cache, FromCache, IntoCache};
 use monolith::lang::{Sentence, Token};
 use monolith::preprocessing::{Preprocess, TextPreprocessor, Vocab};
@@ -35,6 +36,7 @@ fn test_preprocessor() {
     assert_eq!(word_ids[0], &[24, 25, 26, 17]);
 }
 
+#[cfg(feature = "app")]
 #[test]
 fn test_serialize() {
     let mut v = Vocab::new();

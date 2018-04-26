@@ -6,9 +6,12 @@ extern crate tempfile;
 use std::io as std_io;
 
 use monolith::io::prelude::*;
+#[cfg(feature = "app")]
 use monolith::io::cache::Cache;
+#[cfg(feature = "serialize")]
 use monolith::io::serialize;
 
+#[cfg(feature = "serialize")]
 #[test]
 fn test_serialize() {
     #[derive(Debug, PartialEq, Deserialize, Serialize)]
@@ -90,6 +93,7 @@ fn test_serialize() {
     }
 }
 
+#[cfg(feature = "app")]
 #[test]
 fn test_cache() {
     #[derive(Debug, PartialEq, Deserialize, Serialize)]
