@@ -1,90 +1,10 @@
 use std::u32::MAX as U32_MAX;
 
-pub type Index = u32;
-pub type Action = u32;
-
-pub trait TransitionState {
-    fn step(&self) -> usize {
-        self.actions().len()
-    }
-
-    fn num_tokens(&self) -> usize;
-
-    fn stack_top(&self) -> Option<Index>;
-
-    fn stack(&self, position: Index) -> Option<Index>;
-
-    fn stack_size(&self) -> usize;
-
-    fn is_stack_empty(&self) -> bool {
-        self.stack_size() == 0
-    }
-
-    fn buffer_head(&self) -> Option<Index>;
-
-    fn buffer(&self, position: Index) -> Option<Index>;
-
-    fn buffer_size(&self) -> usize;
-
-    fn is_buffer_empty(&self) -> bool {
-        self.buffer_size() == 0
-    }
-
-    fn head(&self, index: Index) -> Option<Index>;
-
-    fn heads(&self) -> &[Option<Index>];
-
-    fn label(&self, index: Index) -> Option<Index>;
-
-    fn labels(&self) -> &[Option<Index>];
-
-    fn leftmost(&self, index: Index, check_from: Option<Index>) -> Option<Index>;
-
-    fn rightmost(&self, index: Index, check_from: Option<Index>) -> Option<Index>;
-
-    fn actions(&self) -> &[Action];
-}
-
-pub trait TransitionMutableState: TransitionState {
-    fn advance(&mut self) -> Result<(), Error>;
-
-    fn push(&mut self, index: Index) -> Result<(), Error>;
-
-    fn pop(&mut self) -> Result<Index, Error>;
-
-    fn add_arc(&mut self, index: Index, head: Index, label: Index) -> Result<(), Error>;
-
-    fn record(&mut self, action: Action) -> Result<(), Error>;
-}
-
-pub trait TransitionSystem {
-    fn num_action_types() -> usize;
-
-    fn num_defined_actions(num_labels: usize) -> usize;
-
-    fn estimate_num_actions(num_tokens: usize) -> usize;
-
-    fn apply<S: TransitionMutableState>(action: Action, state: &mut S) -> Result<(), Error>;
-
-    fn is_allowed<S: TransitionState>(action: Action, state: &S) -> bool;
-
-    fn is_terminal<S: TransitionState>(state: &S) -> bool;
-
-    fn get_oracle<S: TransitionState>(
-        state: &S,
-        gold_heads: &[Index],
-        gold_labels: &[Index],
-    ) -> Option<Action>;
-}
-
-pub enum Error {
-    InvalidOperation,
-    InvalidArgument,
-}
+use super::{Index, Action, TransitionState, TransitionMutableState, TransitionSystem, Error};
 
 #[inline]
 fn default_capacity(num_tokens: usize) -> usize {
-    2 * num_tokens + 1
+    2 * (num_tokens - 1)
 }
 
 #[derive(Debug)]
@@ -129,7 +49,13 @@ impl TransitionState for State {
     }
 
     fn stack(&self, position: Index) -> Option<Index> {
-        self.stack.get(position as usize).map(|&i| i)
+        let position = position as usize;
+        let stack_size = self.stack.len();
+        if position < stack_size {
+            self.stack.get(stack_size - 1 - position).map(|&i| i)
+        } else {
+            None
+        }
     }
 
     fn stack_size(&self) -> usize {
@@ -293,7 +219,7 @@ impl GoldState {
         } else {
             let capacity = T::estimate_num_actions(n);
             let mut internal = State::with_capacity(n as u32, capacity);
-            while T::is_terminal(&internal) {
+            while !T::is_terminal(&internal) {
                 let action = T::get_oracle(&internal, heads, labels).unwrap();
                 T::apply(action, &mut internal)?;
             }
@@ -302,11 +228,11 @@ impl GoldState {
         }
     }
 
-    pub fn with_feature_extract<T: TransitionSystem, F: FnMut(&State) -> Vec<O>, O>(
+    pub fn with_feature_extract<T: TransitionSystem, FO, F: FnMut(&State) -> FO>(
         heads: &[Index],
         labels: &[Index],
         mut extract: F,
-    ) -> Result<Self, Error> {
+    ) -> Result<(Self, Vec<FO>), Error> {
         let n = heads.len();
         if n > (U32_MAX as usize) {
             Err(Error::InvalidArgument)
@@ -322,7 +248,7 @@ impl GoldState {
                 T::apply(action, &mut internal)?;
             }
             let state = GoldState { internal: internal };
-            Ok(state)
+            Ok((state, features))
         }
     }
 }
