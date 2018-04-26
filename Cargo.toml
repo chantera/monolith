@@ -4,14 +4,45 @@ version = "0.1.0"
 authors = ["Hiroki Teranishi <teranishihiroki@gmail.com>"]
 
 [dependencies]
+byteorder = { version = "1.2", optional = true }
+chan = { version = "0.1", optional = true }
+chan-signal = { version = "0.3", optional = true }
+chrono = { version = "0.4", optional = true }
+csv = { version = "1.0.0-beta", optional = true }
+libc = "0.2"
+pbr = { version = "1.0", optional = true }
 primitiv = { version = "0.3", optional = true }
+serde = { version = "1.0", optional = true }
+serde_derive = { version = "1.0", optional = true }
+serde_json = { version = "1.0", optional = true }
+slog = { version = "2.1", optional = true }
+slog-async = { version = "2.2", optional = true }
+slog-term = { version = "2.3", optional = true }
+structopt = { version = "0.2", optional = true }
+structopt-derive = { version = "0.2", optional = true }
+rand = "0.5.0-pre"
+rmp-serde = { version = "0.13", optional = true }
+uuid = { version = "0.6", features = ["v5"], optional = true }
+
+[dev-dependencies]
+clap = "2.31"
+tempfile = "2.2"
 
 [features]
-syntax = []
+default = ["logging", "models", "serialize", "training"]
+app = ["chan", "chan-signal", "logging", "serialize", "structopt", "structopt-derive", "uuid"]
 dataset-conll = []
+logging = ["chrono", "slog", "slog-async", "slog-term"]
 models = ["primitiv"]
+syntax = []
+serialize = ["byteorder", "csv", "serde", "serde_derive", "serde_json", "rmp-serde"]
+training = ["logging", "models", "pbr"]
+
+primitiv-cuda = ["models", "primitiv/cuda"]
+primitiv-eigen = ["models", "primitiv/eigen"]
+primitiv-opencl = ["models", "primitiv/opencl"]
 
 [[example]]
 name = "tagger"
 path = "examples/tagger/tagger.rs"
-required-features = ["dataset-conll", "models"]
+required-features = ["app", "dataset-conll", "logging", "models", "serialize", "training"]

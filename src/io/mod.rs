@@ -5,16 +5,76 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::usize::MAX as USIZE_MAX;
 
+#[cfg(feature = "app")]
+#[macro_use]
+pub mod cache;
+#[cfg(feature = "serialize")]
+pub mod embedding;
 pub mod prelude;
+#[cfg(feature = "serialize")]
+pub mod serialize;
 
 pub trait Read {
     type Item;
 
-    fn read(&mut self, buf: &mut Vec<Self::Item>) -> io::Result<usize> {
+    fn read(&mut self, buf: &mut [Self::Item]) -> io::Result<usize> {
+        let limit = buf.len();
+        let mut b = Vec::with_capacity(limit);
+        let result = self.read_upto(limit, &mut b);
+        for (i, item) in b.into_iter().enumerate() {
+            buf[i] = item;
+        }
+        result
+    }
+
+    fn read_to_end(&mut self, buf: &mut Vec<Self::Item>) -> io::Result<usize> {
         self.read_upto(USIZE_MAX, buf)
     }
 
     fn read_upto(&mut self, num: usize, buf: &mut Vec<Self::Item>) -> io::Result<usize>;
+
+    fn read_exact(&mut self, mut buf: &mut [Self::Item]) -> io::Result<()> {
+        while !buf.is_empty() {
+            match self.read(buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    let tmp = buf;
+                    buf = &mut tmp[n..];
+                }
+                Err(ref e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(e) => return Err(e),
+            }
+        }
+        if !buf.is_empty() {
+            Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "failed to fill whole buffer",
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn by_ref(&mut self) -> &mut Self
+    where
+        Self: Sized,
+    {
+        self
+    }
+
+    // TODO(chantera): Implement followings:
+    // fn chain<R: Read>(self, next: R) -> Chain<Self, R>
+    // where
+    //     Self: Sized,
+    // { ... }
+    // fn take(self, limit: u64) -> Take<Self>
+    // where
+    //     Self: Sized,
+    // { ... }
+}
+
+pub trait FileOpen: Sized {
+    fn open<P: AsRef<Path>>(path: P) -> io::Result<Self>;
 }
 
 pub trait FromLine: Sized {
@@ -48,12 +108,6 @@ impl<R: io::Read, T> Reader<R, T> {
     }
 }
 
-impl<T> Reader<io::BufReader<File>, T> {
-    pub fn open<P: AsRef<Path>>(path: P) -> io::Result<Self> {
-        Ok(Self::new(io::BufReader::new(File::open(path)?)))
-    }
-}
-
 impl<R: io::Seek, T> io::Seek for Reader<R, T> {
     fn seek(&mut self, pos: io::SeekFrom) -> io::Result<u64> {
         self.inner.seek(pos)
@@ -65,6 +119,12 @@ impl<R: io::BufRead, T: FromLine> Read for Reader<R, T> {
 
     fn read_upto(&mut self, num: usize, buf: &mut Vec<Self::Item>) -> io::Result<usize> {
         read_upto(&mut self.inner, num, buf)
+    }
+}
+
+impl<T> FileOpen for Reader<io::BufReader<File>, T> {
+    fn open<P: AsRef<Path>>(path: P) -> io::Result<Self> {
+        Ok(Self::new(io::BufReader::new(File::open(path)?)))
     }
 }
 
@@ -90,4 +150,39 @@ pub fn read_upto<R: io::BufRead, T: FromLine>(
         line.clear();
     }
     Ok(count)
+}
+
+pub type BufFileReader<T> = Reader<io::BufReader<File>, T>;
+
+pub trait Write {
+    type Item;
+
+    fn write(&mut self, buf: &[Self::Item]) -> io::Result<usize>;
+
+    fn flush(&mut self) -> io::Result<()>;
+
+    fn write_all(&mut self, buf: &[Self::Item]) -> io::Result<()> {
+        let mut b = buf;
+        while !b.is_empty() {
+            match self.write(b) {
+                Ok(0) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::WriteZero,
+                        "failed to write whole buffer",
+                    ))
+                }
+                Ok(n) => b = &b[n..],
+                Err(ref e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(())
+    }
+
+    fn by_ref(&mut self) -> &mut Self
+    where
+        Self: Sized,
+    {
+        self
+    }
 }

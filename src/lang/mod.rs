@@ -1,3 +1,5 @@
+use std::slice::Iter;
+
 pub(crate) use self::rcstring::RcString;
 pub use self::simple::*;
 
@@ -19,6 +21,12 @@ pub trait Phrasal {
 
     fn from_tokens(tokens: Vec<Self::Token>) -> Self;
     fn raw(&self) -> &str;
-
     fn token(&self, index: usize) -> Option<&Self::Token>;
+    fn tokens(&self) -> &Vec<Self::Token>;
+    fn len(&self) -> usize {
+        self.tokens().len()
+    }
+    fn iter(&self) -> Iter<Self::Token> {
+        self.tokens().iter()
+    }
 }

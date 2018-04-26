@@ -164,7 +164,7 @@ fn require<T>(option: Option<T>) -> Result<T, std_io::Error> {
         Some(val) => Ok(val),
         None => Err(std_io::Error::new(
             std_io::ErrorKind::InvalidData,
-            "The value mut not be `None`",
+            "The value must not be `None`",
         )),
     }
 }

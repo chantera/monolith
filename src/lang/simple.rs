@@ -4,7 +4,7 @@ use std::ops::{Deref, Index};
 
 use lang::{Phrasal, Tokenized};
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Token<'a> {
     id: usize,
     form: Cow<'a, str>,
@@ -12,6 +12,26 @@ pub struct Token<'a> {
     postag: Option<Cow<'a, str>>,
     head: Option<usize>,
     deprel: Option<Cow<'a, str>>,
+}
+
+impl<'a> Token<'a> {
+    pub fn new<S: Into<Cow<'a, str>>>(
+        id: usize,
+        form: S,
+        lemma: Option<S>,
+        postag: Option<S>,
+        head: Option<usize>,
+        deprel: Option<S>,
+    ) -> Self {
+        Token {
+            id: id,
+            form: form.into(),
+            lemma: lemma.map(|s| s.into()),
+            postag: postag.map(|s| s.into()),
+            head: head,
+            deprel: deprel.map(|s| s.into()),
+        }
+    }
 }
 
 impl<'a> Tokenized for Token<'a> {
@@ -46,20 +66,23 @@ impl<'a> fmt::Display for Token<'a> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Sentence<T: Tokenized> {
     raw: String,
     tokens: Vec<T>,
 }
 
-impl<T: Tokenized> Sentence<T> {
-    fn new(tokens: Vec<T>) -> Self {
+impl<'a> Sentence<Token<'a>> {
+    pub fn new<S: Into<String>>(raw: S) -> Self {
+        let raw = raw.into();
+        let tokens = raw.split(" ")
+            .enumerate()
+            .map(|(i, word)| {
+                Token::new(i, word.to_string(), None, None, None, None)
+            })
+            .collect::<Vec<Token>>();
         Sentence {
-            raw: tokens
-                .iter()
-                .map(|t| t.form().to_string())
-                .collect::<Vec<String>>()
-                .join(" "),
+            raw: raw,
             tokens: tokens,
         }
     }
@@ -91,6 +114,10 @@ impl<T: Tokenized> Phrasal for Sentence<T> {
 
     fn token(&self, index: usize) -> Option<&Self::Token> {
         self.tokens.get(index)
+    }
+
+    fn tokens(&self) -> &Vec<Self::Token> {
+        &self.tokens
     }
 }
 
