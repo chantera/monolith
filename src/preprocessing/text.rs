@@ -13,9 +13,7 @@ use io::cache::{self, FromCache, IntoCache};
 use io::embedding as embed_io;
 use lang::RcString;
 #[cfg(feature = "serialize")]
-use rand::distributions;
-#[cfg(feature = "serialize")]
-use rand::distributions::range::RangeImpl;
+use rand::distributions::{self, Distribution};
 #[cfg(feature = "app")]
 use uuid::{Uuid, NAMESPACE_OID as UUID_NAMESPACE_OID};
 
@@ -80,7 +78,7 @@ impl Vocab {
             }
             None => {
                 let dim = entries[0].1.len();
-                let uniform = distributions::range::RangeFloat::<f32>::new(-1.0, 1.0);
+                let uniform = distributions::Uniform::from(-1.0..1.0);
                 let mut value = Vec::with_capacity(dim);
                 let mut rng = thread_rng();
                 for _ in 0..dim {
@@ -216,7 +214,7 @@ impl Vocab {
                 }
                 embeddings.reserve(num_uninitialized_words);
                 let dim = embeddings[0].len();
-                let uniform = distributions::range::RangeFloat::<f32>::new(-1.0, 1.0);
+                let uniform = distributions::Uniform::from(-1.0..1.0);
                 let mut rng = thread_rng();
                 for _ in 0..num_uninitialized_words {
                     let mut value = Vec::with_capacity(dim);

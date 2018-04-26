@@ -2,10 +2,8 @@ use std::cell::UnsafeCell;
 use std::rc::Rc;
 
 pub use rand::Rng;
-use rand::{RngCore, CryptoRng, SeedableRng, EntropyRng, IsaacRng, Error};
-use rand::distributions::{Distribution, Uniform};
+use rand::{RngCore, CryptoRng, SeedableRng, EntropyRng, IsaacRng, ReseedingRng, Error};
 use rand::prng::hc128::Hc128Core;
-use rand::reseeding::ReseedingRng;
 
 use utils;
 
@@ -82,10 +80,3 @@ impl RngCore for ThreadRng {
 }
 
 impl CryptoRng for ThreadRng {}
-
-pub fn random<T>() -> T
-where
-    Uniform: Distribution<T>,
-{
-    thread_rng().gen()
-}
