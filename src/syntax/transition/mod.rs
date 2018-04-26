@@ -1,3 +1,6 @@
+use std::error;
+use std::fmt;
+
 pub use self::state::*;
 pub use self::arc_standard::*;
 
@@ -86,4 +89,29 @@ pub trait TransitionSystem {
 pub enum Error {
     InvalidOperation,
     InvalidArgument,
+}
+
+impl Error {
+    pub fn as_str(&self) -> &'static str {
+        match *self {
+            Error::InvalidOperation => "invalid operation",
+            Error::InvalidArgument => "invalid argument",
+        }
+    }
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+impl error::Error for Error {
+    fn description(&self) -> &str {
+        self.as_str()
+    }
+
+    fn cause(&self) -> Option<&error::Error> {
+        None
+    }
 }
