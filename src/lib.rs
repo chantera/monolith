@@ -54,8 +54,8 @@ pub mod logging;
 #[cfg(feature = "models")]
 pub mod models;
 pub mod preprocessing;
-// #[cfg(feature = "syntax")]
-// pub mod syntax;
+#[cfg(feature = "syntax")]
+pub mod syntax;
 #[cfg(feature = "training")]
 pub mod training;
 pub mod utils;
