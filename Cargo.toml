@@ -46,3 +46,8 @@ primitiv-opencl = ["models", "primitiv/opencl"]
 name = "tagger"
 path = "examples/tagger/tagger.rs"
 required-features = ["app", "dataset-conll", "logging", "models", "serialize", "training"]
+
+[[example]]
+name = "parser"
+path = "examples/parser/parser.rs"
+required-features = ["app", "dataset-conll", "logging", "models", "serialize", "syntax", "training"]
