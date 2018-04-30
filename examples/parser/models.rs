@@ -119,87 +119,81 @@ impl ChenManning14Model {
         );
     }
 
-    pub fn forward<FeatureBatch, Features>(&mut self, xs: FeatureBatch, train: bool) -> Vec<Node>
+    pub fn forward<FeatureBatch, Features>(&mut self, xs: FeatureBatch, train: bool) -> Node
     where
         FeatureBatch: AsRef<[Features]>,
         Features: AsRef<[ChenManning14Feature]>,
     {
-        let ys = xs.as_ref()
-            .iter()
-            .map(|features| {
-                let features = features.as_ref();
-                let len = features.len();
-                let mut word_ids = Vec::with_capacity(len);
-                let mut postag_ids = Vec::with_capacity(len);
-                let mut label_ids = Vec::with_capacity(len);
-                for feature in features {
-                    word_ids.push(feature.words);
-                    postag_ids.push(feature.postags);
-                    label_ids.push(feature.labels);
-                }
-                let xs_words = self.word_embed.forward(word_ids);
-                let xs_postags = self.postag_embed.forward(postag_ids);
-                let xs_labels = self.label_embed.forward(label_ids);
-                let xs_features: Vec<Node> = xs_words
-                    .into_iter()
-                    .zip(xs_postags.into_iter())
-                    .zip(xs_labels.into_iter())
-                    .map(|((x_w, x_p), x_l)| {
-                        let x = F::batch::concat(
-                            [
-                                F::dropout(x_w, self.dropout_rate, train),
-                                F::dropout(x_p, self.dropout_rate, train),
-                                F::dropout(x_l, self.dropout_rate, train),
-                            ],
-                        );
-                        let x = F::concat(F::batch::split(x, NUM_CM14_FEATURES as u32), 0);
-                        x
-                    })
-                    .collect();
-                let xs_features = F::batch::concat(xs_features);
-                let w1 = F::parameter(&mut self.pw1);
-                let b1 = F::parameter(&mut self.pb1);
-                let w2 = F::parameter(&mut self.pw2);
-                let hs = F::pown(F::matmul(w1, xs_features) + b1, 3);
-                let ys = F::matmul(w2, F::dropout(hs, self.dropout_rate, train));
-                ys
+        let num_samples = xs.as_ref().iter().fold(0, |sum, x| sum + x.as_ref().len());
+        let mut word_ids: Vec<&[u32]> = Vec::with_capacity(num_samples);
+        let mut postag_ids: Vec<&[u32]> = Vec::with_capacity(num_samples);
+        let mut label_ids: Vec<&[u32]> = Vec::with_capacity(num_samples);
+        for features in xs.as_ref() {
+            for feature in features.as_ref() {
+                word_ids.push(&feature.words);
+                postag_ids.push(&feature.postags);
+                label_ids.push(&feature.labels);
+            }
+        }
+        let xs_words = self.word_embed.forward(word_ids);
+        let xs_postags = self.postag_embed.forward(postag_ids);
+        let xs_labels = self.label_embed.forward(label_ids);
+        let xs_features: Vec<Node> = xs_words
+            .into_iter()
+            .zip(xs_postags.into_iter())
+            .zip(xs_labels.into_iter())
+            .map(|((x_w, x_p), x_l)| {
+                let x = F::batch::concat(
+                    [
+                        F::dropout(x_w, self.dropout_rate, train),
+                        F::dropout(x_p, self.dropout_rate, train),
+                        F::dropout(x_l, self.dropout_rate, train),
+                    ],
+                );
+                let x = F::concat(F::batch::split(x, NUM_CM14_FEATURES as u32), 0);
+                x
             })
             .collect();
+        let xs_features = F::batch::concat(xs_features);
+        let w1 = F::parameter(&mut self.pw1);
+        let b1 = F::parameter(&mut self.pb1);
+        let w2 = F::parameter(&mut self.pw2);
+        let hs = F::pown(F::matmul(w1, xs_features) + b1, 3);
+        let ys = F::matmul(w2, F::dropout(hs, self.dropout_rate, train));
         ys
     }
 
-    pub fn loss<ActionBatch, Actions>(&mut self, ys: &[Node], ts: ActionBatch) -> Node
+    pub fn loss<ActionBatch, Actions>(&mut self, ys: &Node, ts: ActionBatch) -> Node
     where
         ActionBatch: AsRef<[Actions]>,
         Actions: AsRef<[u32]>,
     {
-        let batch_size = ys[0].shape().batch();
-        let losses: Vec<Node> = ts.as_ref()
-            .iter()
-            .zip(ys)
-            .map(|(t, y)| {
-                F::batch::sum(F::softmax_cross_entropy_with_ids(y, t.as_ref(), 0))
-            })
-            .collect();
-        F::sum_nodes(&losses) / batch_size
+        let batch_size = ts.as_ref().len() as u32;
+        let mut actions = Vec::with_capacity(ys.shape().batch() as usize);
+        ts.as_ref().iter().for_each(
+            |t| actions.extend_from_slice(t.as_ref()),
+        );
+        let loss = F::batch::sum(F::softmax_cross_entropy_with_ids(ys, &actions, 0));
+        loss / batch_size
     }
 
-    pub fn accuracy<ActionBatch, Actions>(&mut self, ys: &[Node], ts: ActionBatch) -> (u32, u32)
+    pub fn accuracy<ActionBatch, Actions>(&mut self, ys: &Node, ts: ActionBatch) -> (u32, u32)
     where
         ActionBatch: AsRef<[Actions]>,
         Actions: AsRef<[u32]>,
     {
         let mut correct = 0;
-        let mut total = 0;
-        for (y_batch, t_batch) in ys.iter().zip(ts.as_ref()) {
-            for (y, t) in y_batch.argmax(0).iter().zip(t_batch.as_ref()) {
-                total += 1;
-                if y == t {
+        let mut count = 0;
+        let ys = ys.argmax(0);
+        for actions in ts.as_ref() {
+            for t in actions.as_ref() {
+                if ys[count] == *t {
                     correct += 1;
                 }
+                count += 1;
             }
         }
-        (correct, total)
+        (correct, count as u32)
     }
 }
 
