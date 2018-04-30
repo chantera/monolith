@@ -69,7 +69,7 @@ impl<O> Preprocessor<O> {
             postag_ids.push(self.postag_v.add(token.postag().unwrap().to_string()));
             label_ids.push(self.label_v.add(token.deprel().unwrap().to_string()));
         });
-        (word_ids, label_ids, postag_ids)
+        (word_ids, postag_ids, label_ids)
     }
 
     pub fn map<T: Tokenized>(&self, tokens: &[T]) -> (Vec<u32>, Vec<u32>, Vec<u32>) {
@@ -83,7 +83,7 @@ impl<O> Preprocessor<O> {
             postag_ids.push(self.postag_v.get(token.postag().unwrap()));
             label_ids.push(self.label_v.get(token.deprel().unwrap()));
         });
-        (word_ids, label_ids, postag_ids)
+        (word_ids, postag_ids, label_ids)
     }
 }
 
