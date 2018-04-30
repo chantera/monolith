@@ -10,6 +10,7 @@ use primitiv::Parameter;
 use primitiv::node_functions as F;
 use primitiv::initializers as I;
 
+#[derive(Debug)]
 pub struct ChenManning14Model {
     model: Model,
     word_embed: Embed,
@@ -144,14 +145,15 @@ impl ChenManning14Model {
                     .zip(xs_postags.into_iter())
                     .zip(xs_labels.into_iter())
                     .map(|((x_w, x_p), x_l)| {
-                        F::concat(
+                        let x = F::batch::concat(
                             [
                                 F::dropout(x_w, self.dropout_rate, train),
                                 F::dropout(x_p, self.dropout_rate, train),
                                 F::dropout(x_l, self.dropout_rate, train),
                             ],
-                            0,
-                        )
+                        );
+                        let x = F::concat(F::batch::split(x, NUM_CM14_FEATURES as u32), 0);
+                        x
                     })
                     .collect();
                 let xs_features = F::batch::concat(xs_features);
@@ -218,6 +220,7 @@ impl_model!(ChenManning14Model, model);
 /// excluding those 6 words on the stack/buffer for S^l (n_l = 12).
 /// A good advantage of our parser is that we can add a rich set of elements cheaply,
 /// instead of hand-crafting many more indicator features.
+#[derive(Debug)]
 pub struct ChenManning14Feature {
     pub words: [u32; NUM_CM14_WORD_FEATURES],
     pub postags: [u32; NUM_CM14_POSTAG_FEATURES],
@@ -227,6 +230,8 @@ pub struct ChenManning14Feature {
 const NUM_CM14_WORD_FEATURES: usize = 18;
 const NUM_CM14_POSTAG_FEATURES: usize = 18;
 const NUM_CM14_LABEL_FEATURES: usize = 12;
+const NUM_CM14_FEATURES: usize = NUM_CM14_WORD_FEATURES + NUM_CM14_POSTAG_FEATURES +
+    NUM_CM14_LABEL_FEATURES;
 const PAD_ID: u32 = U32_MAX - 1024;
 
 impl ChenManning14Feature {
@@ -383,6 +388,7 @@ impl<'a, M> ParserBuilder<'a, M> {
         self
     }
 
+    #[allow(dead_code)]
     pub fn out(mut self, size: usize) -> Self {
         self.out_size = Some(size);
         self
@@ -391,9 +397,9 @@ impl<'a, M> ParserBuilder<'a, M> {
 
 impl<'a> ParserBuilder<'a, ChenManning14Model> {
     pub fn build(self) -> ChenManning14Model {
-        if self.out_size.is_none() {
-            panic!("out_size must be set before builder.build() is called.");
-        }
+        let out_size = self.out_size.unwrap_or_else(
+            || self.label_vocab_size * 2 + 1,
+        );
         let mut model = ChenManning14Model::new(self.dropout_rate);
         match self.word_embed {
             Some(values) => {
@@ -404,7 +410,7 @@ impl<'a> ParserBuilder<'a, ChenManning14Model> {
                     self.label_vocab_size,
                     self.label_embed_size,
                     self.mlp_unit,
-                    self.out_size.unwrap(),
+                    out_size,
                 );
             }
             None => {
@@ -416,7 +422,7 @@ impl<'a> ParserBuilder<'a, ChenManning14Model> {
                     self.label_vocab_size,
                     self.label_embed_size,
                     self.mlp_unit,
-                    self.out_size.unwrap(),
+                    out_size,
                 );
             }
         }

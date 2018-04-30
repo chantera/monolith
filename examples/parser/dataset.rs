@@ -96,6 +96,7 @@ impl Preprocessor<Vec<ChenManning14Feature>> {
         let word_pad_id = self.word_v.get(WORD_PADDING);
         let postag_pad_id = self.postag_v.get(POSTAG_PADDING);
         let label_pad_id = self.label_v.get(LABEL_PADDING);
+        let heads = transition::projectivize(heads);
         let (state, features) =
             transition::GoldState::with_feature_extract::<transition::ArcStandard, _, _>(
                 &heads,

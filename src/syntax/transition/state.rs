@@ -242,7 +242,7 @@ impl GoldState {
             let capacity = T::estimate_num_actions(n);
             let mut internal = State::with_capacity(n as u32, capacity);
             let mut features = Vec::with_capacity(capacity);
-            while T::is_terminal(&internal) {
+            while !T::is_terminal(&internal) {
                 features.push(extract(&internal));
                 let action = T::get_oracle(&internal, heads, labels).unwrap();
                 T::apply(action, &mut internal)?;

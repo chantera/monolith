@@ -22,13 +22,13 @@ use self::models::*;
 mod dataset;
 mod models;
 
-/*
 fn train<P1, P2, P3, P4>(
     train_file: P1,
     valid_file: Option<P2>,
     embed_file: Option<P3>,
     n_epochs: u32,
     batch_size: usize,
+    learning_rate: f32,
     save_to: Option<P4>,
     logger: &Logger,
 ) -> Result<(), Box<Error + Send + Sync>>
@@ -52,50 +52,49 @@ where
             None => Vocab::new(),
         }));
 
-        let train_dataset = loader.load_until(train_file, 200)?;
+        let train_dataset = loader.load(train_file)?;
         loader.fix();
         let valid_dataset = match valid_file {
-            Some(f) => Some(loader.load_until(f, 20)?),
+            Some(f) => Some(loader.load(f)?),
             None => None,
         };
         let preprocessor = loader.dispose();
         let word_vocab = preprocessor.word_vocab();
 
-        let mut builder = TaggerBuilder::new();
+        let mut builder = ParserBuilder::<ChenManning14Model>::default()
+            .postag(preprocessor.postag_vocab().size(), 50)
+            .label(preprocessor.label_vocab().size(), 50)
+            .mlp(200)
+            .dropout(0.5);
+        info!(logger, "builder: {:?}", builder);
         builder = if word_vocab.has_embed() {
             builder.word_embed(word_vocab.embed()?)
         } else {
-            builder.word(word_vocab.size(), 100)
+            builder.word(word_vocab.size(), 50)
         };
-        let mut model = builder
-            .char(preprocessor.char_vocab().size(), 50)
-            .lstm(200)
-            .mlp(100)
-            .dropout(0.5)
-            .out(preprocessor.pos_vocab().size())
-            .build();
+        let mut model = builder.build();
         (train_dataset, valid_dataset, model)
     };
 
-    let mut optimizer = optimizers::Adam::default();
-    optimizer.set_weight_decay(1e-6);
-    optimizer.set_gradient_clipping(5.0);
+    let mut optimizer = optimizers::AdaGrad::new(learning_rate, 1e-8);
     optimizer.add_model(&mut model);
     let saver = save_to.map(|dir| {
-        let mut c = Saver::new(&model, dir, "tagger");
+        let mut c = Saver::new(&model, dir, "parser");
         c.set_interval(1);
         c.save_from(10);
         c.save_best(true);
         c
     });
 
-    let mut trainer = Trainer::new(optimizer, |mut batch: Vec<&Sample>, train: bool| {
-        sort_batch!(batch);
-        take_cols!((words:0, chars:1, postags:2); batch, batch_size);
-        transpose!(words, chars, postags);
-        let ys = model.forward(words, chars, train);
-        let loss = model.loss(&ys, &postags);
-        let accuracy = model.accuracy(&ys, &postags);
+    let mut trainer = Trainer::new(optimizer, |batch: Vec<
+        &(Vec<ChenManning14Feature>,
+          Vec<u32>),
+    >,
+     train: bool| {
+        take_cols!((features:0, actions:1); batch, batch_size);
+        let ys = model.forward(features, train);
+        let loss = model.loss(&ys, &actions);
+        let accuracy = model.accuracy(&ys, &actions);
         (loss, accuracy)
     });
     trainer.show_progress();
@@ -104,17 +103,15 @@ where
         trainer.add_callback("saver", c);
     }
     trainer.fit(train_dataset, valid_dataset, n_epochs, batch_size);
-
     Ok(())
 }
 
 fn test<P: AsRef<Path>>(_file: P) -> Result<(), Box<Error + Send + Sync>> {
     Ok(())
 }
-*/
 
 #[derive(StructOpt, Debug)]
-#[structopt(name = "tagger")]
+#[structopt(name = "parser")]
 struct Args {
     #[structopt(flatten)]
     common: CommonArgs,
@@ -147,6 +144,9 @@ struct Train {
     /// A file of pretrained word embeddings
     #[structopt(long = "embed", parse(from_os_str))]
     embed_file: Option<PathBuf>,
+    /// Learning rate for an optimizer
+    #[structopt(long = "lrate", default_value = "0.001")]
+    learning_rate: f32,
     /// Number of sweeps over the dataset to train
     #[structopt(long = "epoch", default_value = "20")]
     n_epochs: u32,
@@ -170,22 +170,21 @@ main!(|args: Args, context: Context| match args.command {
         println!("train with a file: {:?}", c.input);
         let mut dev = primitiv_utils::select_device(c.device);
         devices::set_default(&mut *dev);
-        // train(
-        //     &c.input,
-        //     c.valid_file.as_ref(),
-        //     c.embed_file.as_ref(),
-        //     c.n_epochs,
-        //     c.batch_size,
-        //     c.save_to.as_ref(),
-        //     &context.logger,
-        // )
-        Ok(())
+        train(
+            &c.input,
+            c.valid_file.as_ref(),
+            c.embed_file.as_ref(),
+            c.n_epochs,
+            c.batch_size,
+            c.learning_rate,
+            c.save_to.as_ref(),
+            &context.logger,
+        )
     }
     Command::Test(ref c) => {
         println!("test with a file: {:?}", c.input);
         let mut dev = primitiv_utils::select_device(0);
         devices::set_default(&mut *dev);
-        // test(&c.input)
-        Ok(())
+        test(&c.input)
     }
 });
