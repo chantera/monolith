@@ -26,6 +26,9 @@ impl<O> Preprocessor<O> {
         let mut postag_v = Vocab::with_default_token("NN");
         let mut label_v = Vocab::with_default_token("dep");
         word_v.add(WORD_PADDING);
+        if word_v.has_embed() {
+            word_v.init_embed().unwrap();
+        }
         postag_v.add(POSTAG_PADDING);
         label_v.add(LABEL_PADDING);
         Preprocessor {
