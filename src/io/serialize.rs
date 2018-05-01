@@ -1,5 +1,7 @@
+use std::fs;
 use std::io as std_io;
 use std::marker::PhantomData;
+use std::path::Path;
 use std::u32::MAX as U32_MAX;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
@@ -9,7 +11,7 @@ use serde::ser::Serializer as SerdeSerializer;
 use serde_json;
 use rmp_serde;
 
-use io as mod_io;
+use io::{Read, Write};
 use lang::RcString;
 
 #[derive(Debug, Clone, Copy)]
@@ -73,6 +75,22 @@ pub fn serialize<T: Serialize>(data: &T, format: Format) -> std_io::Result<Vec<u
     }
 }
 
+pub fn write_to<P: AsRef<Path>, T: Serialize>(
+    data: &T,
+    path: P,
+    format: Format,
+) -> std_io::Result<()> {
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(path)?;
+    let mut serializer = Serializer::new(std_io::BufWriter::new(file), format);
+    serializer.write(&[data])?;
+    serializer.flush()
+}
+
 pub fn deserialize<'a, T: Deserialize<'a>>(bytes: &'a [u8], format: Format) -> std_io::Result<T> {
     match format {
         Format::Json | Format::JsonPretty => {
@@ -88,7 +106,24 @@ pub fn deserialize<'a, T: Deserialize<'a>>(bytes: &'a [u8], format: Format) -> s
     }
 }
 
-impl<T: Serialize, IO: std_io::Write> mod_io::Write for Serializer<IO, T> {
+pub fn read_from<P: AsRef<Path>, T: DeserializeOwned>(
+    path: P,
+    format: Format,
+) -> std_io::Result<T> {
+    let mut serializer = Serializer::new(std_io::BufReader::new(fs::File::open(path)?), format);
+    let mut buf = Vec::with_capacity(1);
+    serializer.read_upto(1, &mut buf)?;
+    if buf.len() != 1 {
+        Err(std_io::Error::new(
+            std_io::ErrorKind::InvalidData,
+            "broken data",
+        ))
+    } else {
+        Ok(buf.pop().unwrap())
+    }
+}
+
+impl<T: Serialize, IO: std_io::Write> Write for Serializer<IO, T> {
     type Item = T;
 
     fn write(&mut self, buf: &[Self::Item]) -> std_io::Result<usize> {
@@ -113,7 +148,7 @@ impl<T: Serialize, IO: std_io::Write> mod_io::Write for Serializer<IO, T> {
     }
 }
 
-impl<T: DeserializeOwned, IO: std_io::Read> mod_io::Read for Serializer<IO, T> {
+impl<T: DeserializeOwned, IO: std_io::Read> Read for Serializer<IO, T> {
     type Item = T;
 
     fn read_upto(&mut self, num: usize, buf: &mut Vec<Self::Item>) -> std_io::Result<usize> {
