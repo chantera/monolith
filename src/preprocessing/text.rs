@@ -2,25 +2,8 @@ use std::borrow::{Borrow, Cow};
 use std::collections::HashMap;
 use std::error;
 use std::fmt;
-#[cfg(feature = "serialize")]
-use std::io as std_io;
-#[cfg(feature = "serialize")]
-use std::path::Path;
 
-#[cfg(feature = "app")]
-use io::cache::{self, FromCache, IntoCache};
-#[cfg(feature = "serialize")]
-use io::embedding as embed_io;
 use lang::RcString;
-#[cfg(feature = "serialize")]
-use serde::ser::{Serialize, Serializer, SerializeStruct};
-#[cfg(feature = "serialize")]
-use rand::distributions::{self, Distribution};
-#[cfg(feature = "app")]
-use uuid::{Uuid, NAMESPACE_OID as UUID_NAMESPACE_OID};
-
-#[cfg(feature = "serialize")]
-use utils::rand::thread_rng;
 
 #[derive(Debug)]
 #[cfg_attr(feature = "serialize", derive(Deserialize))]
@@ -32,112 +15,12 @@ pub struct Vocab {
     enabled_serializing_embeddings: bool,
 }
 
-#[cfg(feature = "serialize")]
-impl Serialize for Vocab {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut s = serializer.serialize_struct("Vocab", 5)?;
-        s.serialize_field("s2i", &self.s2i)?;
-        s.serialize_field("i2s", &self.i2s)?;
-        s.serialize_field("freq", &self.freq)?;
-        if self.enabled_serializing_embeddings {
-            s.serialize_field("embeddings", &self.embeddings)?;
-        } else {
-            s.serialize_field("embeddings", &None::<Vec<Vec<f32>>>)?;
-        }
-        s.serialize_field(
-            "enabled_serializing_embeddings",
-            &self.enabled_serializing_embeddings,
-        )?;
-        s.end()
-    }
-}
-
 const DEFAULT_CAPACITY: usize = 32;
 static UNKNOWN_TOKEN: &'static str = "<UNK>";
 
 impl Vocab {
     pub fn new() -> Self {
         Self::with_capacity_and_default_token(DEFAULT_CAPACITY, UNKNOWN_TOKEN)
-    }
-
-    #[cfg(feature = "serialize")]
-    pub fn from_file<P: AsRef<Path>, S: Into<String>>(
-        file: P,
-        default_token: S,
-    ) -> Result<Self, std_io::Error> {
-        // @TODO: support following formats:
-        // 1. vocab: word per line
-        //  (example)
-        //    will
-        //    their
-        // 2. vocab with embeddings: word and embedding per line
-        //  (example)
-        //    will 0.81544 0.30171 0.5472 0.46581 ...
-        //    their 0.41519 0.13167 -0.0569 -0.56765 ...
-        // 3. vocab and embeddings: word and embeddings (separated)
-        //  (example)
-        //  <vocab file>
-        //    will
-        //    their
-        //  <embeddings file>
-        //    0.81544 0.30171 0.5472 0.46581 ...
-        //    0.41519 0.13167 -0.0569 -0.56765 ...
-        //
-        // currently supports the format `2` only.
-
-        let mut entries = embed_io::load_embeddings(file, b' ', false)?;
-        let capacity = entries.len() + 1;
-        debug_assert!(capacity > 1);
-        let mut embeddings = Vec::with_capacity(capacity);
-
-        let default_token = default_token.into();
-        let default = entries.iter().position(
-            |ref entry| entry.0 == default_token,
-        );
-        match default {
-            Some(index) => {
-                let entry = entries.remove(index);
-                embeddings.push(entry.1);
-            }
-            None => {
-                let dim = entries[0].1.len();
-                let uniform = distributions::Uniform::from(-1.0..1.0);
-                let mut value = Vec::with_capacity(dim);
-                let mut rng = thread_rng();
-                for _ in 0..dim {
-                    value.push(uniform.sample(&mut rng));
-                }
-                embeddings.push(value);
-            }
-        }
-
-        let mut v = Self::with_capacity_and_default_token(capacity, default_token);
-        for entry in entries.into_iter() {
-            v.add(entry.0);
-            embeddings.push(entry.1);
-        }
-        v.embeddings = Some(embeddings);
-        Ok(v)
-    }
-
-    #[cfg(feature = "app")]
-    pub fn from_cache_or_file<P: AsRef<Path>, S: Into<String>>(
-        file: P,
-        default_token: S,
-    ) -> Result<Self, std_io::Error> {
-        let s = default_token.into();
-        let hash = Uuid::new_v5(
-            &UUID_NAMESPACE_OID,
-            &format!("{}={}", file.as_ref().to_str().unwrap(), s),
-        ).to_string();
-        if Vocab::has_cache(&hash) {
-            Vocab::from_cache(&hash)
-        } else {
-            let v = Vocab::from_file(file, s)?;
-            assert!(v.enabled_serializing_embeddings);
-            Vocab::into_cache(&v, &hash)?;
-            Ok(v)
-        }
     }
 
     pub fn with_default_token<S: Into<String>>(default_token: S) -> Self {
@@ -228,32 +111,6 @@ impl Vocab {
         }
     }
 
-    #[cfg(feature = "app")]
-    pub fn init_embed(&mut self) -> Result<(), Error> {
-        let vocab_size = self.size();
-        match self.embeddings.as_mut() {
-            Some(embeddings) => {
-                let num_uninitialized_words = vocab_size - embeddings.len();
-                if num_uninitialized_words == 0 {
-                    return Ok(());
-                }
-                embeddings.reserve(num_uninitialized_words);
-                let dim = embeddings[0].len();
-                let uniform = distributions::Uniform::from(-1.0..1.0);
-                let mut rng = thread_rng();
-                for _ in 0..num_uninitialized_words {
-                    let mut value = Vec::with_capacity(dim);
-                    for _ in 0..dim {
-                        value.push(uniform.sample(&mut rng));
-                    }
-                    embeddings.push(value);
-                }
-                Ok(())
-            }
-            None => Err(Error::InvalidOperation("vocab does not use embeddings")),
-        }
-    }
-
     pub fn has_embed(&self) -> bool {
         self.embeddings.is_some()
     }
@@ -266,9 +123,6 @@ impl Vocab {
         self.enabled_serializing_embeddings = false;
     }
 }
-
-#[cfg(feature = "app")]
-impl_cache!(Vocab);
 
 #[derive(Debug)]
 pub enum Error {
@@ -301,4 +155,149 @@ impl fmt::Display for Error {
 
 trait Tokenize {
     fn tokenize(sentence: &str) -> Vec<String>;
+}
+
+#[cfg(feature = "serialize")]
+mod serialize {
+    use std::io as std_io;
+    use std::path::Path;
+
+    #[cfg(feature = "app")]
+    use io::cache::{self, FromCache, IntoCache};
+    use io::embedding as embed_io;
+    use serde::ser::{Serialize, Serializer, SerializeStruct};
+    use rand::distributions::{self, Distribution};
+    #[cfg(feature = "app")]
+    use uuid::{Uuid, NAMESPACE_OID as UUID_NAMESPACE_OID};
+
+    use super::{Vocab, Error};
+    use utils::rand::thread_rng;
+
+    impl Vocab {
+        pub fn from_file<P: AsRef<Path>, S: Into<String>>(
+            file: P,
+            default_token: S,
+        ) -> Result<Self, std_io::Error> {
+            // @TODO: support following formats:
+            // 1. vocab: word per line
+            //  (example)
+            //    will
+            //    their
+            // 2. vocab with embeddings: word and embedding per line
+            //  (example)
+            //    will 0.81544 0.30171 0.5472 0.46581 ...
+            //    their 0.41519 0.13167 -0.0569 -0.56765 ...
+            // 3. vocab and embeddings: word and embeddings (separated)
+            //  (example)
+            //  <vocab file>
+            //    will
+            //    their
+            //  <embeddings file>
+            //    0.81544 0.30171 0.5472 0.46581 ...
+            //    0.41519 0.13167 -0.0569 -0.56765 ...
+            //
+            // currently supports the format `2` only.
+
+            let mut entries = embed_io::load_embeddings(file, b' ', false)?;
+            let capacity = entries.len() + 1;
+            debug_assert!(capacity > 1);
+            let mut embeddings = Vec::with_capacity(capacity);
+
+            let default_token = default_token.into();
+            let default = entries.iter().position(
+                |ref entry| entry.0 == default_token,
+            );
+            match default {
+                Some(index) => {
+                    let entry = entries.remove(index);
+                    embeddings.push(entry.1);
+                }
+                None => {
+                    let dim = entries[0].1.len();
+                    let uniform = distributions::Uniform::from(-1.0..1.0);
+                    let mut value = Vec::with_capacity(dim);
+                    let mut rng = thread_rng();
+                    for _ in 0..dim {
+                        value.push(uniform.sample(&mut rng));
+                    }
+                    embeddings.push(value);
+                }
+            }
+
+            let mut v = Self::with_capacity_and_default_token(capacity, default_token);
+            for entry in entries.into_iter() {
+                v.add(entry.0);
+                embeddings.push(entry.1);
+            }
+            v.embeddings = Some(embeddings);
+            Ok(v)
+        }
+
+        #[cfg(feature = "app")]
+        pub fn from_cache_or_file<P: AsRef<Path>, S: Into<String>>(
+            file: P,
+            default_token: S,
+        ) -> Result<Self, std_io::Error> {
+            let s = default_token.into();
+            let hash = Uuid::new_v5(
+                &UUID_NAMESPACE_OID,
+                &format!("{}={}", file.as_ref().to_str().unwrap(), s),
+            ).to_string();
+            if Vocab::has_cache(&hash) {
+                Vocab::from_cache(&hash)
+            } else {
+                let v = Vocab::from_file(file, s)?;
+                assert!(v.enabled_serializing_embeddings);
+                Vocab::into_cache(&v, &hash)?;
+                Ok(v)
+            }
+        }
+
+        pub fn init_embed(&mut self) -> Result<(), Error> {
+            let vocab_size = self.size();
+            match self.embeddings.as_mut() {
+                Some(embeddings) => {
+                    let num_uninitialized_words = vocab_size - embeddings.len();
+                    if num_uninitialized_words == 0 {
+                        return Ok(());
+                    }
+                    embeddings.reserve(num_uninitialized_words);
+                    let dim = embeddings[0].len();
+                    let uniform = distributions::Uniform::from(-1.0..1.0);
+                    let mut rng = thread_rng();
+                    for _ in 0..num_uninitialized_words {
+                        let mut value = Vec::with_capacity(dim);
+                        for _ in 0..dim {
+                            value.push(uniform.sample(&mut rng));
+                        }
+                        embeddings.push(value);
+                    }
+                    Ok(())
+                }
+                None => Err(Error::InvalidOperation("vocab does not use embeddings")),
+            }
+        }
+    }
+
+    impl Serialize for Vocab {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            let mut s = serializer.serialize_struct("Vocab", 5)?;
+            s.serialize_field("s2i", &self.s2i)?;
+            s.serialize_field("i2s", &self.i2s)?;
+            s.serialize_field("freq", &self.freq)?;
+            if self.enabled_serializing_embeddings {
+                s.serialize_field("embeddings", &self.embeddings)?;
+            } else {
+                s.serialize_field("embeddings", &None::<Vec<Vec<f32>>>)?;
+            }
+            s.serialize_field(
+                "enabled_serializing_embeddings",
+                &self.enabled_serializing_embeddings,
+            )?;
+            s.end()
+        }
+    }
+
+    #[cfg(feature = "app")]
+    impl_cache!(Vocab);
 }

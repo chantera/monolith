@@ -6,6 +6,9 @@ use std::path::Path;
 use std::slice::Iter;
 use std::usize::MAX as USIZE_MAX;
 
+#[cfg(feature = "serialize")]
+use serde::{Deserialize, Serialize};
+
 use io::{BufFileReader, FileOpen, Read};
 use preprocessing::Preprocess;
 use utils::rand::{Rng, thread_rng};
@@ -258,6 +261,9 @@ pub trait Load {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serialize", serde(bound(serialize = "P: Serialize")))]
+#[cfg_attr(feature = "serialize", serde(bound(deserialize = "P: Deserialize<'de>")))]
 pub struct Loader<R, P> {
     _reader: PhantomData<R>,
     preprocessor: P,
@@ -311,163 +317,3 @@ impl<T, P: Preprocess<T>, R: FileOpen + Read<Item = T>> Load for Loader<R, P> {
 }
 
 pub type StdLoader<T, P> = Loader<BufFileReader<T>, P>;
-
-#[cfg(feature = "serialize")]
-mod serialize {
-    use std::fmt;
-    use std::marker::PhantomData;
-
-    use serde::{Deserialize, Serialize};
-    use serde::ser::{Serializer, SerializeStruct};
-    use serde::de;
-
-    use super::Loader;
-
-    impl<R, SP: Serialize> Serialize for Loader<R, SP> {
-        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-            let mut s = serializer.serialize_struct("Loader", 3)?;
-            s.serialize_field("_reader", &self._reader)?;
-            s.serialize_field("preprocessor", &self.preprocessor)?;
-            s.serialize_field("enable_fit", &self.enable_fit)?;
-            s.end()
-        }
-    }
-
-    impl<R, SP: Serialize> Loader<R, SP> {
-        pub fn hello(&self) {
-            println!("Hello World!");
-        }
-    }
-
-    impl<'de, R, DP: Deserialize<'de>> Deserialize<'de> for Loader<R, DP> {
-        fn deserialize<D: de::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-            deserializer.deserialize_struct("Loader", LOADER_FIELDS, LoaderVisitor::<R, DP>::new())
-        }
-    }
-
-    const LOADER_FIELDS: &'static [&'static str] = &["_reader", "preprocessor", "enable_fit"];
-
-    struct LoaderVisitor<R, P> {
-        _reader: PhantomData<R>,
-        _preprocessor: PhantomData<P>,
-    }
-
-    impl<R, P> LoaderVisitor<R, P> {
-        fn new() -> Self {
-            LoaderVisitor {
-                _reader: PhantomData,
-                _preprocessor: PhantomData,
-            }
-        }
-    }
-
-    impl<'de, R, DP: Deserialize<'de>> de::Visitor<'de> for LoaderVisitor<R, DP> {
-        type Value = Loader<R, DP>;
-
-        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-            formatter.write_str("struct Loader")
-        }
-
-        fn visit_seq<V>(self, mut seq: V) -> Result<Loader<R, DP>, V::Error>
-        where
-            V: de::SeqAccess<'de>,
-        {
-            let reader = seq.next_element()?.ok_or_else(
-                || de::Error::invalid_length(0, &self),
-            )?;
-            let preprocessor = seq.next_element()?.ok_or_else(
-                || de::Error::invalid_length(1, &self),
-            )?;
-            let enable_fit = seq.next_element()?.ok_or_else(
-                || de::Error::invalid_length(2, &self),
-            )?;
-            let loader = Loader {
-                _reader: reader,
-                preprocessor: preprocessor,
-                enable_fit: enable_fit,
-            };
-            Ok(loader)
-        }
-
-        fn visit_map<V>(self, mut map: V) -> Result<Loader<R, DP>, V::Error>
-        where
-            V: de::MapAccess<'de>,
-        {
-            let mut reader = None;
-            let mut preprocessor = None;
-            let mut enable_fit = None;
-            while let Some(key) = map.next_key()? {
-                match key {
-                    LoaderField::Reader => {
-                        if reader.is_some() {
-                            return Err(de::Error::duplicate_field("_reader"));
-                        }
-                        reader = Some(map.next_value()?);
-                    }
-                    LoaderField::Preprocessor => {
-                        if preprocessor.is_some() {
-                            return Err(de::Error::duplicate_field("preprocessor"));
-                        }
-                        preprocessor = Some(map.next_value()?);
-                    }
-                    LoaderField::EnableFit => {
-                        if enable_fit.is_some() {
-                            return Err(de::Error::duplicate_field("enable_fit"));
-                        }
-                        enable_fit = Some(map.next_value()?);
-                    }
-                }
-            }
-            let reader = reader.ok_or_else(|| de::Error::missing_field("reader"))?;
-            let preprocessor = preprocessor.ok_or_else(
-                || de::Error::missing_field("preprocessor"),
-            )?;
-            let enable_fit = enable_fit.ok_or_else(
-                || de::Error::missing_field("enable_fit"),
-            )?;
-            let loader = Loader {
-                _reader: reader,
-                preprocessor: preprocessor,
-                enable_fit: enable_fit,
-            };
-            Ok(loader)
-        }
-    }
-
-    enum LoaderField {
-        Reader,
-        Preprocessor,
-        EnableFit,
-    }
-
-    impl<'de> Deserialize<'de> for LoaderField {
-        fn deserialize<D>(deserializer: D) -> Result<LoaderField, D::Error>
-        where
-            D: de::Deserializer<'de>,
-        {
-            deserializer.deserialize_identifier(LoaderFieldVisitor)
-        }
-    }
-
-    struct LoaderFieldVisitor;
-
-    impl<'de> de::Visitor<'de> for LoaderFieldVisitor {
-        type Value = LoaderField;
-
-        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-            formatter.write_str("`_reader`, `preprocessor` or `enable_fit`")
-        }
-
-        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-        where
-            E: de::Error,
-        {
-            match value {
-                "_reader" => Ok(LoaderField::Reader),
-                "preprocessor" => Ok(LoaderField::Preprocessor),
-                "enable_fit" => Ok(LoaderField::EnableFit),
-                _ => Err(de::Error::unknown_field(value, LOADER_FIELDS)),
-            }
-        }
-    }
-}
