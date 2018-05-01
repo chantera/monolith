@@ -34,8 +34,8 @@ app = ["chan", "chan-signal", "logging", "serialize", "structopt", "structopt-de
 dataset-conll = []
 logging = ["chrono", "slog", "slog-async", "slog-term"]
 models = ["primitiv"]
-syntax = []
 serialize = ["byteorder", "csv", "serde", "serde_derive", "serde_json", "rmp-serde"]
+syntax = []
 training = ["logging", "models", "pbr"]
 
 primitiv-cuda = ["models", "primitiv/cuda"]
