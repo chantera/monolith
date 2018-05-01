@@ -9,6 +9,7 @@ static CHAR_PADDING: &'static str = "<PAD>";
 /// (word_ids, char_ids, tag_ids) of a sentence.
 pub type Sample = (Vec<u32>, Vec<Vec<u32>>, Vec<u32>);
 
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Preprocessor {
     word_v: Vocab,
     char_v: Vocab,

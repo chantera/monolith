@@ -4,12 +4,16 @@ extern crate monolith;
 extern crate primitiv;
 #[macro_use]
 extern crate slog;
+#[macro_use]
+extern crate serde_derive;
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::result::Result;
 
+use monolith::app;
 use monolith::app::prelude::*;
+use monolith::io::serialize;
 use monolith::preprocessing::Vocab;
 use monolith::training::Trainer;
 use monolith::training::callbacks::Saver;
@@ -40,6 +44,17 @@ where
     P3: AsRef<Path>,
     P4: AsRef<Path>,
 {
+    let output_path = save_to.map(|dir| {
+        let prefix = app::get_context()
+            .map(|c| {
+                format!("{}-{}", c.accesstime.format("%Y%m%d"), c.accessid)
+            })
+            .unwrap();
+        let mut path = dir.as_ref().to_path_buf();
+        path.push(prefix);
+        path
+    });
+
     // load datasets and build the NN model
     let (train_dataset, valid_dataset, mut model) = {
         let mut loader = Loader::new(Preprocessor::new(match embed_file {
@@ -52,6 +67,11 @@ where
                 Vocab::new()
             }
         }));
+        if let Some(ref path) = output_path {
+            let path = format!("{}-loader.mpac", path.to_str().unwrap());
+            info!(logger, "saving the loader to {} ...", path);
+            serialize::write_to(&loader, path, serialize::Format::Msgpack).unwrap();
+        }
 
         info!(
             logger,
@@ -101,8 +121,9 @@ where
     optimizer.add_model(&mut model);
 
     // initialize a model saver
-    let saver = save_to.map(|dir| {
-        let mut c = Saver::new(&model, dir, "tagger");
+    let saver = output_path.map(|path| {
+        let path = format!("{}-tagger", path.to_str().unwrap());
+        let mut c = Saver::new(&model, &path);
         c.set_interval(1);
         c.save_from(10);
         c.save_best(true);
@@ -191,6 +212,9 @@ struct Test {
     /// A testing data file
     #[structopt(name = "INPUT", parse(from_os_str))]
     input: PathBuf,
+    /// A model file
+    #[structopt(name = "MODEL", parse(from_os_str))]
+    model: PathBuf,
     /// GPU device ID (negative value indicates CPU)
     #[structopt(long = "device", default_value = "-1")]
     device: i32,

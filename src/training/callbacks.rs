@@ -162,9 +162,17 @@ pub struct Saver<M: ModelImpl> {
 }
 
 impl<M: ModelImpl> Saver<M> {
-    pub fn new<P: AsRef<Path>>(model: &M, dir: P, basename: &str) -> Self {
+    pub fn new(model: &M, basename: &str) -> Self {
+        Saver::with_base_path(model, utils::path::expandtilde(basename))
+    }
+
+    pub fn with_dir<P: AsRef<Path>>(model: &M, basename: &str, dir: P) -> Self {
         let mut base_path = utils::path::expandtilde(dir);
         base_path.push(basename);
+        Saver::with_base_path(model, base_path)
+    }
+
+    fn with_base_path(model: &M, mut base_path: PathBuf) -> Self {
         base_path.set_extension(MODEL_FILE_EXT);
         Saver {
             model: model,
