@@ -13,6 +13,8 @@ use io::cache::{self, FromCache, IntoCache};
 use io::embedding as embed_io;
 use lang::RcString;
 #[cfg(feature = "serialize")]
+use serde::ser::{Serialize, Serializer, SerializeStruct};
+#[cfg(feature = "serialize")]
 use rand::distributions::{self, Distribution};
 #[cfg(feature = "app")]
 use uuid::{Uuid, NAMESPACE_OID as UUID_NAMESPACE_OID};
@@ -21,12 +23,33 @@ use uuid::{Uuid, NAMESPACE_OID as UUID_NAMESPACE_OID};
 use utils::rand::thread_rng;
 
 #[derive(Debug)]
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serialize", derive(Deserialize))]
 pub struct Vocab {
     s2i: HashMap<RcString, u32>,
     i2s: Vec<RcString>,
     freq: Vec<usize>,
     embeddings: Option<Vec<Vec<f32>>>,
+    enabled_serializing_embeddings: bool,
+}
+
+#[cfg(feature = "serialize")]
+impl Serialize for Vocab {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut s = serializer.serialize_struct("Vocab", 5)?;
+        s.serialize_field("s2i", &self.s2i)?;
+        s.serialize_field("i2s", &self.i2s)?;
+        s.serialize_field("freq", &self.freq)?;
+        if self.enabled_serializing_embeddings {
+            s.serialize_field("embeddings", &self.embeddings)?;
+        } else {
+            s.serialize_field("embeddings", &None::<Vec<Vec<f32>>>)?;
+        }
+        s.serialize_field(
+            "enabled_serializing_embeddings",
+            &self.enabled_serializing_embeddings,
+        )?;
+        s.end()
+    }
 }
 
 const DEFAULT_CAPACITY: usize = 32;
@@ -111,6 +134,7 @@ impl Vocab {
             Vocab::from_cache(&hash)
         } else {
             let v = Vocab::from_file(file, s)?;
+            assert!(v.enabled_serializing_embeddings);
             Vocab::into_cache(&v, &hash)?;
             Ok(v)
         }
@@ -133,6 +157,7 @@ impl Vocab {
             i2s: Vec::with_capacity(capacity),
             freq: Vec::with_capacity(capacity),
             embeddings: None,
+            enabled_serializing_embeddings: true,
         };
         v.add(default_token.into());
         v
@@ -231,6 +256,14 @@ impl Vocab {
 
     pub fn has_embed(&self) -> bool {
         self.embeddings.is_some()
+    }
+
+    pub fn enable_serializing_embeddings(&mut self) {
+        self.enabled_serializing_embeddings = true;
+    }
+
+    pub fn disable_serializing_embeddings(&mut self) {
+        self.enabled_serializing_embeddings = false;
     }
 }
 
