@@ -1,13 +1,16 @@
-use std::error::Error;
+use std::cell::Cell;
 use std::env;
+use std::error::Error;
 use std::fmt;
 use std::mem;
 use std::process;
+use std::rc::Rc;
 use std::thread;
 use std::time::Duration;
 
 use chan;
 use chan_signal::{self, Signal};
+use chrono::{DateTime, Local};
 use libc;
 use slog::Logger;
 
@@ -55,6 +58,20 @@ impl fmt::Display for AppError {
 #[derive(Debug)]
 pub struct Context {
     pub logger: Logger,
+    pub accessid: String,
+    pub accesstime: DateTime<Local>,
+}
+
+thread_local!(
+    static CONTEXT: Rc<Cell<Option<*const Context>>> = Rc::new(Cell::new(None));
+);
+
+fn set_context(context: &Context) {
+    CONTEXT.with(|c| { c.set(Some(context)); });
+}
+
+pub fn get_context<'a>() -> Option<&'a Context> {
+    CONTEXT.with(|c| c.get().map(|c_ptr| unsafe { &*c_ptr }))
 }
 
 #[derive(Debug, Clone)]
@@ -134,7 +151,12 @@ impl App {
         match AppLogger::new(self.config.logging.clone()) {
             // an async logger spawns threads internally.
             Ok(logger) => {
-                let context = Context { logger: logger.create() };
+                let context = Context {
+                    logger: logger.create(),
+                    accessid: logger.accessid().to_string(),
+                    accesstime: logger.accesstime().clone(),
+                };
+                set_context(&context);
                 self.logger = Some(logger);
                 self.context = Some(context);
                 Ok(0)
@@ -203,6 +225,7 @@ impl App {
         if let Some(ref signal) = receiver {
             let (sdone, rdone) = chan::sync(0);
             thread::spawn(move || {
+                set_context(&context);
                 sdone.send((*main_fn)(context).map_err(|e| AppError::new(1, e)));
                 let _ = sdone;
             });
