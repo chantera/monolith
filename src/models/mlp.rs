@@ -5,14 +5,26 @@ use primitiv::initializers as I;
 use primitiv::node_functions as F;
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+struct LayerParameter {
+    #[cfg_attr(feature = "serialize", serde(skip))]
+    pw: Parameter,
+    #[cfg_attr(feature = "serialize", serde(skip))]
+    pb: Parameter,
+}
+
+#[derive(Debug)]
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 pub struct MLP {
+    #[cfg_attr(feature = "serialize", serde(skip))]
     model: Model,
-    layers: Vec<(Parameter, Parameter)>,
+    layers: Vec<LayerParameter>,
     activation: Activate,
     dropout_rate: f32,
 }
 
 #[derive(Copy, Clone, Debug)]
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 pub enum Activate {
     Sigmoid,
     Tanh,
@@ -45,13 +57,26 @@ impl MLP {
             let mut pb = Parameter::new();
             model.add_parameter(&format!("{}.pw", i), &mut pw);
             model.add_parameter(&format!("{}.pb", i), &mut pb);
-            layers.push((pw, pb));
+            layers.push(LayerParameter { pw, pb });
         }
         MLP {
             model: model,
             layers: layers,
             activation: activation,
             dropout_rate: dropout,
+        }
+    }
+
+    pub fn reload(&mut self) {
+        for (i, layer) in self.layers.iter_mut().enumerate() {
+            let pw_name = format!("{}.pw", i);
+            if self.model.get_parameter(&pw_name).is_none() {
+                self.model.add_parameter(&pw_name, &mut layer.pw);
+            }
+            let pb_name = format!("{}.pb", i);
+            if self.model.get_parameter(&pb_name).is_none() {
+                self.model.add_parameter(&pb_name, &mut layer.pb);
+            }
         }
     }
 
@@ -68,11 +93,11 @@ impl MLP {
             } else {
                 out_size
             };
-            layer.0.init_by_initializer(
+            layer.pw.init_by_initializer(
                 [out, units[i]],
                 &I::XavierUniform::new(1.0),
             );
-            layer.1.init_by_initializer([out], &I::Constant::new(0.0));
+            layer.pb.init_by_initializer([out], &I::Constant::new(0.0));
         }
     }
 
@@ -80,8 +105,8 @@ impl MLP {
         let num_layers = self.layers.len();
         let mut h = x.as_ref().clone();
         for (i, layer) in self.layers.iter_mut().enumerate() {
-            let w = F::parameter(&mut layer.0);
-            let b = F::parameter(&mut layer.1);
+            let w = F::parameter(&mut layer.pw);
+            let b = F::parameter(&mut layer.pb);
             if i < num_layers - 1 {
                 h = F::dropout(
                     activate(self.activation, F::matmul(w, h) + b),

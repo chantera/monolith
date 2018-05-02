@@ -14,13 +14,21 @@ use primitiv::node_functions as F;
 ///   c[t] = i * j + f * c[t-1]
 ///   h[t] = o * tanh(c[t])
 #[derive(Debug)]
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 pub struct LSTM {
+    #[cfg_attr(feature = "serialize", serde(skip))]
     model: Model,
+    #[cfg_attr(feature = "serialize", serde(skip))]
     pw: Parameter,
+    #[cfg_attr(feature = "serialize", serde(skip))]
     pb: Parameter,
+    #[cfg_attr(feature = "serialize", serde(skip))]
     w: Node,
+    #[cfg_attr(feature = "serialize", serde(skip))]
     b: Node,
+    #[cfg_attr(feature = "serialize", serde(skip))]
     h: Node,
+    #[cfg_attr(feature = "serialize", serde(skip))]
     c: Node,
 }
 
@@ -35,9 +43,17 @@ impl LSTM {
             h: Node::new(),
             c: Node::new(),
         };
-        m.model.add_parameter("w", &mut m.pw);
-        m.model.add_parameter("b", &mut m.pb);
+        m.reload();
         m
+    }
+
+    pub fn reload(&mut self) {
+        if self.model.get_parameter("w").is_none() {
+            self.model.add_parameter("w", &mut self.pw);
+        }
+        if self.model.get_parameter("b").is_none() {
+            self.model.add_parameter("b", &mut self.pb);
+        }
     }
 
     /// Initializes the model.
@@ -146,7 +162,9 @@ impl LSTM {
 impl_model!(LSTM, model);
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 pub struct BiLSTM {
+    #[cfg_attr(feature = "serialize", serde(skip))]
     model: Model,
     lstms: Vec<(LSTM, LSTM)>,
     dropout_rate: f32,
@@ -168,6 +186,21 @@ impl BiLSTM {
             model: model,
             lstms: lstms,
             dropout_rate: dropout,
+        }
+    }
+
+    pub fn reload(&mut self) {
+        for (i, layer) in self.lstms.iter_mut().enumerate() {
+            let f_lstm_name = format!("{}.f_lstm", i);
+            if self.model.get_submodel(&f_lstm_name).is_none() {
+                layer.0.reload();
+                self.model.add_submodel(&f_lstm_name, &mut layer.0);
+            }
+            let b_lstm_name = format!("{}.b_lstm", i);
+            if self.model.get_submodel(&b_lstm_name).is_none() {
+                layer.1.reload();
+                self.model.add_submodel(&b_lstm_name, &mut layer.1);
+            }
         }
     }
 

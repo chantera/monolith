@@ -6,8 +6,11 @@ use primitiv::initializers as I;
 use primitiv::node_functions as F;
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 pub struct Embed {
+    #[cfg_attr(feature = "serialize", serde(skip))]
     model: Model,
+    #[cfg_attr(feature = "serialize", serde(skip))]
     lookup: Parameter,
     pub update_enabled: bool,
 }
@@ -19,8 +22,14 @@ impl Embed {
             lookup: Parameter::new(),
             update_enabled: true,
         };
-        m.model.add_parameter("lookup", &mut m.lookup);
+        m.reload();
         m
+    }
+
+    pub fn reload(&mut self) {
+        if self.model.get_parameter("lookup").is_none() {
+            self.model.add_parameter("lookup", &mut self.lookup);
+        }
     }
 
     pub fn init(&mut self, vocab_size: usize, embed_size: u32) {
