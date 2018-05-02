@@ -358,22 +358,7 @@ impl CharCNN {
         let xs = F::batch::concat(xs);
         let hs = self.conv.forward(xs);
         let mask = F::broadcast(F::input([1, out_len as u32, 1], &mask), 2, hs.shape().at(2));
-
-        // TODO(chantera) use max
-        let s = hs.shape();
-        let window = (s.at(1), 1);
-        let padding = (0, 0);
-        let stride = (s.at(1), 1);
-        let ys = F::max_pool2d(
-            F::reshape(hs + mask, ([s.at(1), s.at(2)], s.batch())),
-            window.0,
-            window.1,
-            padding.0,
-            padding.1,
-            stride.0,
-            stride.1,
-        );
-        let ys = F::flatten(ys);
+        let ys = F::flatten(F::max(hs + mask, 1));
         ys
     }
 }
