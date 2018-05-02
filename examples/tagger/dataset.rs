@@ -17,7 +17,8 @@ pub struct Preprocessor {
 }
 
 impl Preprocessor {
-    pub fn new(word_v: Vocab) -> Self {
+    pub fn new(mut word_v: Vocab) -> Self {
+        word_v.disable_serializing_embeddings();
         let mut char_v = Vocab::new();
         let pad_id = char_v.add(CHAR_PADDING);
         assert!(pad_id == 1);

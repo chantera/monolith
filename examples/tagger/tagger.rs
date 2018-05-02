@@ -44,6 +44,7 @@ where
     P3: AsRef<Path>,
     P4: AsRef<Path>,
 {
+    // TODO(chantera) do not use `app::get_context()` here
     let output_path = save_to.map(|dir| {
         let prefix = app::get_context()
             .map(|c| {
@@ -59,7 +60,7 @@ where
     let (train_dataset, valid_dataset, mut model) = {
         let mut loader = Loader::new(Preprocessor::new(match embed_file {
             Some(f) => {
-                info!(logger, "embed file: {}", f.as_ref().to_str().unwrap());
+                info!(logger, "embed file: {}", f.as_ref().display());
                 Vocab::from_cache_or_file(f, "<UNK>")?
             }
             None => {
@@ -67,22 +68,13 @@ where
                 Vocab::new()
             }
         }));
-        if let Some(ref path) = output_path {
-            let path = format!("{}-loader.mpac", path.to_str().unwrap());
-            info!(logger, "saving the loader to {} ...", path);
-            serialize::write_to(&loader, path, serialize::Format::Msgpack).unwrap();
-        }
 
-        info!(
-            logger,
-            "train file: {}",
-            train_file.as_ref().to_str().unwrap()
-        );
+        info!(logger, "train file: {}", train_file.as_ref().display());
         let train_dataset = loader.load(train_file)?;
         loader.fix();
         let valid_dataset = match valid_file {
             Some(f) => {
-                info!(logger, "valid file: {}", f.as_ref().to_str().unwrap());
+                info!(logger, "valid file: {}", f.as_ref().display());
                 Some(loader.load(f)?)
             }
             None => {
@@ -90,6 +82,11 @@ where
                 None
             }
         };
+        if let Some(ref path) = output_path {
+            let path = format!("{}-loader.json", path.to_str().unwrap());
+            info!(logger, "saving the loader to {} ...", path);
+            serialize::write_to(&loader, path, serialize::Format::Json).unwrap();
+        }
         let preprocessor = loader.dispose();
         let word_vocab = preprocessor.word_vocab();
 
@@ -105,7 +102,7 @@ where
         } else {
             builder.word(word_vocab.size(), 100)
         };
-        let mut model = builder.build();
+        let model = builder.build();
         (train_dataset, valid_dataset, model)
     };
 
@@ -122,8 +119,10 @@ where
 
     // initialize a model saver
     let saver = output_path.map(|path| {
-        let path = format!("{}-tagger", path.to_str().unwrap());
-        let mut c = Saver::new(&model, &path);
+        let arch_path = format!("{}-tagger.arch.json", path.to_str().unwrap());
+        serialize::write_to(&model, arch_path, serialize::Format::Json).unwrap();
+        let model_path = format!("{}-tagger", path.to_str().unwrap());
+        let mut c = Saver::new(&model, &model_path);
         c.set_interval(1);
         c.save_from(10);
         c.save_best(true);
@@ -152,7 +151,54 @@ where
     Ok(())
 }
 
-pub fn test<P: AsRef<Path>>(_file: P) -> Result<(), Box<Error + Send + Sync>> {
+pub fn test<P1: AsRef<Path>, P2: AsRef<Path>>(
+    test_file: P1,
+    model_file: P2,
+    logger: &Logger,
+) -> Result<(), Box<Error + Send + Sync>> {
+    // load datasets and the NN model
+    let (test_dataset, mut model) = {
+        let (loader_file, arch_file) = {
+            // TODO(chantera) replace `tagger.{\d}.mdl` with `loader.json`
+            let dir = model_file.as_ref().parent().unwrap().to_str().unwrap();
+            let s = model_file.as_ref().file_name().unwrap().to_str().unwrap();
+            let splits: Vec<&str> = s.split('-').take(2).collect();
+            let loader_file = format!("{}/{}-{}-loader.json", dir, splits[0], splits[1]);
+            let arch_file = format!("{}/{}-{}-tagger.arch.json", dir, splits[0], splits[1]);
+            (loader_file, arch_file)
+        };
+        info!(logger, "loading the loader from {} ...", loader_file);
+        let mut loader =
+            serialize::read_from::<_, Loader<Preprocessor>>(loader_file, serialize::Format::Json)?;
+
+        info!(logger, "test file: {}", test_file.as_ref().display());
+        loader.fix();
+        let test_dataset = loader.load(test_file)?;
+
+        let mut model: Tagger = serialize::read_from(arch_file, serialize::Format::Json)?;
+        model.reload();
+        model.load(model_file, true)?;
+        (test_dataset, model)
+    };
+
+    let mut g = Graph::new();
+    Graph::set_default(&mut g);
+
+    for mut batch in test_dataset.batch(32, false) {
+        g.clear();
+        sort_batch!(batch);
+        take_cols!((words:0, chars:1, postags:2); batch, 32);
+        transpose!(words, chars, postags);
+        let ys = model.forward(words, chars, false);
+        let loss = model.loss(&ys, &postags);
+        let accuracy = model.accuracy(&ys, &postags);
+        println!(
+            "loss: {}, accuracy: {}",
+            loss.to_float(),
+            (accuracy.0 as f32 / accuracy.1 as f32)
+        );
+    }
+
     Ok(())
 }
 
@@ -238,9 +284,8 @@ main!(|args: Args, context: Context| match args.command {
         )
     }
     Command::Test(ref c) => {
-        println!("test with a file: {:?}", c.input);
-        let mut dev = primitiv_utils::select_device(0);
+        let mut dev = primitiv_utils::select_device(c.device);
         devices::set_default(&mut *dev);
-        test(&c.input)
+        test(&c.input, &c.model, &context.logger)
     }
 });

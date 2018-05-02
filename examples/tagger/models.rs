@@ -11,8 +11,9 @@ const CHAR_WINDOW_SIZE: u32 = 5;
 const NUM_BILSTM_LAYERS: usize = 2;
 const NUM_MLP_LAYERS: usize = 2;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Tagger {
+    #[serde(skip)]
     model: Model,
     word_embed: Embed,
     char_cnn: Option<CharCNN>,
@@ -35,13 +36,27 @@ impl Tagger {
             mlp: MLP::new(NUM_MLP_LAYERS, Activate::Relu, dropout),
             dropout_rate: dropout,
         };
-        m.model.add_submodel("word_embed", &mut m.word_embed);
-        if let Some(ref mut char_cnn) = m.char_cnn {
-            m.model.add_submodel("char_cnn", char_cnn);
-        }
-        m.model.add_submodel("bilstm", &mut m.bilstm);
-        m.model.add_submodel("mlp", &mut m.mlp);
+        m.reload();
         m
+    }
+
+    pub fn reload(&mut self) {
+        if self.model.get_submodel("word_embed").is_none() {
+            self.word_embed.reload();
+            self.model.add_submodel("word_embed", &mut self.word_embed);
+        }
+        if let Some(ref mut char_cnn) = self.char_cnn {
+            char_cnn.reload();
+            self.model.add_submodel("char_cnn", char_cnn);
+        }
+        if self.model.get_submodel("bilstm").is_none() {
+            self.bilstm.reload();
+            self.model.add_submodel("bilstm", &mut self.bilstm);
+        }
+        if self.model.get_submodel("mlp").is_none() {
+            self.mlp.reload();
+            self.model.add_submodel("mlp", &mut self.mlp);
+        }
     }
 
     pub fn init(
@@ -291,8 +306,9 @@ impl<'a> TaggerBuilder<'a> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct CharCNN {
+    #[serde(skip)]
     model: Model,
     embed: Embed,
     conv: Conv2D,
@@ -311,9 +327,19 @@ impl CharCNN {
             pad_width: 0,
             dropout_rate: dropout,
         };
-        m.model.add_submodel("embed", &mut m.embed);
-        m.model.add_submodel("conv", &mut m.conv);
+        m.reload();
         m
+    }
+
+    pub fn reload(&mut self) {
+        if self.model.get_submodel("embed").is_none() {
+            self.embed.reload();
+            self.model.add_submodel("embed", &mut self.embed);
+        }
+        if self.model.get_submodel("conv").is_none() {
+            self.conv.reload();
+            self.model.add_submodel("conv", &mut self.conv);
+        }
     }
 
     pub fn init(&mut self, vocab_size: usize, embed_size: u32, out_size: u32, window_size: u32) {
@@ -345,7 +371,6 @@ impl CharCNN {
     {
         let (ids, mask) = pad(xs, self.pad_width as usize, self.pad_id);
         let out_len = mask.len();
-
         let mut xs = self.embed.forward(ids);
         xs = xs.into_iter()
             .map(|x| {
