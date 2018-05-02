@@ -46,8 +46,10 @@ impl Tagger {
             self.model.add_submodel("word_embed", &mut self.word_embed);
         }
         if let Some(ref mut char_cnn) = self.char_cnn {
-            char_cnn.reload();
-            self.model.add_submodel("char_cnn", char_cnn);
+            if self.model.get_submodel("char_cnn").is_none() {
+                char_cnn.reload();
+                self.model.add_submodel("char_cnn", char_cnn);
+            }
         }
         if self.model.get_submodel("bilstm").is_none() {
             self.bilstm.reload();

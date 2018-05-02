@@ -3,9 +3,9 @@ extern crate monolith;
 #[macro_use]
 extern crate primitiv;
 #[macro_use]
-extern crate slog;
-#[macro_use]
 extern crate serde_derive;
+#[macro_use]
+extern crate slog;
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -107,8 +107,7 @@ where
     };
 
     // configure an optimizer
-    let mut optimizer = optimizers::Adam::default();
-    optimizer.set_learning_rate_scaling(learning_rate);
+    let mut optimizer = optimizers::Adam::new(learning_rate, 0.9, 0.999, 1e-8);
     if weight_decay_strength > 0.0 {
         optimizer.set_weight_decay(weight_decay_strength);
     }
@@ -270,6 +269,7 @@ main!(|args: Args, context: Context| match args.command {
     Command::Train(ref c) => {
         let mut dev = primitiv_utils::select_device(c.device);
         devices::set_default(&mut *dev);
+        info!(&context.logger, "execute subcommand: {:?}", c);
         train(
             &c.input,
             c.valid_file.as_ref(),
@@ -285,6 +285,7 @@ main!(|args: Args, context: Context| match args.command {
     }
     Command::Test(ref c) => {
         let mut dev = primitiv_utils::select_device(c.device);
+        info!(&context.logger, "execute subcommand: {:?}", c);
         devices::set_default(&mut *dev);
         test(&c.input, &c.model, &context.logger)
     }
