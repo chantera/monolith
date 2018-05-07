@@ -3,6 +3,8 @@ extern crate monolith;
 #[macro_use]
 extern crate primitiv;
 #[macro_use]
+extern crate serde_derive;
+#[macro_use]
 extern crate slog;
 
 use std::error::Error;
@@ -10,9 +12,9 @@ use std::path::{Path, PathBuf};
 use std::result::Result;
 
 use monolith::app::prelude::*;
+use monolith::io::serialize;
 use monolith::preprocessing::Vocab;
-use monolith::training::Trainer;
-use monolith::training::callbacks::Saver;
+use monolith::training;
 use monolith::utils::primitiv as primitiv_utils;
 use primitiv::*;
 use slog::Logger;
@@ -38,26 +40,39 @@ where
     P3: AsRef<Path>,
     P4: AsRef<Path>,
 {
+    let save_to = save_to.map(|path| path.as_ref().to_path_buf());
+
+    // load datasets and build the NN model
     let (train_dataset, valid_dataset, mut model) = {
         let mut loader = Loader::new(Preprocessor::new(match embed_file {
             Some(f) => {
-                eprint!(
-                    "load embedding from `{}` ... ",
-                    f.as_ref().to_str().unwrap()
-                );
-                let v = Vocab::from_cache_or_file(f, "<UNK>")?;
-                eprintln!("done.");
-                v
+                info!(logger, "embed file: {}", f.as_ref().display());
+                Vocab::from_cache_or_file(f, "<UNK>")?
             }
-            None => Vocab::new(),
+            None => {
+                info!(logger, "embed file: None");
+                Vocab::new()
+            }
         }));
 
+        info!(logger, "train file: {}", train_file.as_ref().display());
         let train_dataset = loader.load(train_file)?;
         loader.fix();
         let valid_dataset = match valid_file {
-            Some(f) => Some(loader.load(f)?),
-            None => None,
+            Some(f) => {
+                info!(logger, "valid file: {}", f.as_ref().display());
+                Some(loader.load(f)?)
+            }
+            None => {
+                info!(logger, "valid file: None");
+                None
+            }
         };
+        if let Some(ref path) = save_to.as_ref() {
+            let path = format!("{}-loader.json", path.to_str().unwrap());
+            info!(logger, "saving the loader to {} ...", path);
+            serialize::write_to(&loader, path, serialize::Format::Json).unwrap();
+        }
         let preprocessor = loader.dispose();
         let word_vocab = preprocessor.word_vocab();
 
@@ -76,17 +91,24 @@ where
         (train_dataset, valid_dataset, model)
     };
 
+    // configure an optimizer
     let mut optimizer = optimizers::AdaGrad::new(learning_rate, 1e-8);
     optimizer.add_model(&mut model);
-    let saver = save_to.map(|dir| {
-        let mut c = Saver::new(&model, dir, "parser");
+
+    // initialize a model saver
+    let saver = save_to.map(|path| {
+        let arch_path = format!("{}-parser.arch.json", path.to_str().unwrap());
+        serialize::write_to(&model, arch_path, serialize::Format::Json).unwrap();
+        let model_path = format!("{}-parser", path.to_str().unwrap());
+        let mut c = training::callbacks::Saver::new(&model, &model_path);
         c.set_interval(1);
         c.save_from(10);
         c.save_best(true);
         c
     });
 
-    let mut trainer = Trainer::new(optimizer, |batch: Vec<
+    // create trainer with a forward function and register callbacks
+    let mut trainer = training::Trainer::new(optimizer, |batch: Vec<
         &(Vec<ChenManning14Feature>,
           Vec<u32>),
     >,
@@ -102,7 +124,10 @@ where
     if let Some(c) = saver {
         trainer.add_callback("saver", c);
     }
+
+    // start training
     trainer.fit(train_dataset, valid_dataset, n_epochs, batch_size);
+
     Ok(())
 }
 
@@ -167,9 +192,18 @@ struct Test {
 
 main!(|args: Args, context: Context| match args.command {
     Command::Train(ref c) => {
-        println!("train with a file: {:?}", c.input);
         let mut dev = primitiv_utils::select_device(c.device);
         devices::set_default(&mut *dev);
+        let output_path = c.save_to.as_ref().map(|dir| {
+            let mut path = dir.clone();
+            path.push(format!(
+                "{}-{}",
+                context.accesstime.format("%Y%m%d"),
+                context.accessid
+            ));
+            path
+        });
+        info!(&context.logger, "execute subcommand: {:?}", c);
         train(
             &c.input,
             c.valid_file.as_ref(),
@@ -177,13 +211,13 @@ main!(|args: Args, context: Context| match args.command {
             c.n_epochs,
             c.batch_size,
             c.learning_rate,
-            c.save_to.as_ref(),
+            output_path,
             &context.logger,
         )
     }
     Command::Test(ref c) => {
-        println!("test with a file: {:?}", c.input);
-        let mut dev = primitiv_utils::select_device(0);
+        let mut dev = primitiv_utils::select_device(c.device);
+        info!(&context.logger, "execute subcommand: {:?}", c);
         devices::set_default(&mut *dev);
         test(&c.input)
     }

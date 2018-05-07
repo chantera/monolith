@@ -10,14 +10,18 @@ use primitiv::Parameter;
 use primitiv::node_functions as F;
 use primitiv::initializers as I;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ChenManning14Model {
+    #[serde(skip)]
     model: Model,
     word_embed: Embed,
     postag_embed: Embed,
     label_embed: Embed,
+    #[serde(skip)]
     pw1: Parameter,
+    #[serde(skip)]
     pb1: Parameter,
+    #[serde(skip)]
     pw2: Parameter,
     dropout_rate: f32,
 }
@@ -34,13 +38,38 @@ impl ChenManning14Model {
             pw2: Parameter::new(),
             dropout_rate: dropout,
         };
-        m.model.add_submodel("word_embed", &mut m.word_embed);
-        m.model.add_submodel("postag_embed", &mut m.postag_embed);
-        m.model.add_submodel("label_embed", &mut m.label_embed);
-        m.model.add_parameter("pw1", &mut m.pw1);
-        m.model.add_parameter("pb1", &mut m.pb1);
-        m.model.add_parameter("pw2", &mut m.pw2);
+        m.reload();
         m
+    }
+
+    pub fn reload(&mut self) {
+        if self.model.get_submodel("word_embed").is_none() {
+            self.word_embed.reload();
+            self.model.add_submodel("word_embed", &mut self.word_embed);
+        }
+        if self.model.get_submodel("postag_embed").is_none() {
+            self.postag_embed.reload();
+            self.model.add_submodel(
+                "postag_embed",
+                &mut self.postag_embed,
+            );
+        }
+        if self.model.get_submodel("label_embed").is_none() {
+            self.label_embed.reload();
+            self.model.add_submodel(
+                "label_embed",
+                &mut self.label_embed,
+            );
+        }
+        if self.model.get_parameter("pw1").is_none() {
+            self.model.add_parameter("pw1", &mut self.pw1);
+        }
+        if self.model.get_parameter("pb1").is_none() {
+            self.model.add_parameter("pb1", &mut self.pb1);
+        }
+        if self.model.get_parameter("pw2").is_none() {
+            self.model.add_parameter("pw2", &mut self.pw2);
+        }
     }
 
     pub fn init(

@@ -14,6 +14,7 @@ static WORD_PADDING: &'static str = "<PAD>";
 static POSTAG_PADDING: &'static str = "<PAD>";
 static LABEL_PADDING: &'static str = "<PAD>";
 
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Preprocessor<O> {
     _output_type: PhantomData<O>,
     word_v: Vocab,
@@ -23,6 +24,7 @@ pub struct Preprocessor<O> {
 
 impl<O> Preprocessor<O> {
     pub fn new(mut word_v: Vocab) -> Self {
+        word_v.disable_serializing_embeddings();
         let mut postag_v = Vocab::with_default_token("NN");
         let mut label_v = Vocab::with_default_token("dep");
         word_v.add(WORD_PADDING);
