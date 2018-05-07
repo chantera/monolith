@@ -2,6 +2,7 @@
 extern crate monolith;
 #[macro_use]
 extern crate primitiv;
+extern crate regex;
 #[macro_use]
 extern crate serde_derive;
 #[macro_use]

@@ -1,14 +1,23 @@
 use std::marker::PhantomData;
+use std::rc::Rc;
 use std::u32::MAX as U32_MAX;
 
+use monolith::lang::prelude::*;
 use monolith::models::*;
+use monolith::preprocessing::Vocab;
 use monolith::syntax::transition::prelude::*;
 use monolith::syntax::transition::State;
+use monolith::training;
 use primitiv::Model;
 use primitiv::Node;
 use primitiv::Parameter;
 use primitiv::node_functions as F;
 use primitiv::initializers as I;
+use regex::Regex;
+use slog::Logger;
+
+/// Vector of (heads, labels) tuples
+pub type ParserOutput = Vec<(Vec<u32>, Vec<u32>)>;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ChenManning14Model {
@@ -467,6 +476,123 @@ impl<'a> Default for ParserBuilder<'a, ChenManning14Model> {
             mlp_unit: 200,
             out_size: None,
             dropout_rate: 0.5,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Evaluator {
+    unlabeled_match: usize,
+    labeled_match: usize,
+    count: usize,
+    num_sentences: usize,
+    label_vocab: *const Vocab,
+    re: Regex,
+    logger: Rc<Logger>,
+}
+
+impl Evaluator {
+    pub fn new<L: Into<Rc<Logger>>>(label_v: &Vocab, logger: L) -> Self {
+        Evaluator {
+            unlabeled_match: 0,
+            labeled_match: 0,
+            count: 0,
+            num_sentences: 0,
+            label_vocab: label_v,
+            re: Regex::new(r"^[^\s\d\w]+$").unwrap(),
+            logger: logger.into(),
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.unlabeled_match = 0;
+        self.labeled_match = 0;
+        self.num_sentences = 0;
+        self.count = 0;
+    }
+
+    pub fn evaluate<S: Phrasal>(
+        &mut self,
+        predicted_heads: &[u32],
+        predicted_labels: &[u32],
+        sentence: &S,
+    ) {
+        let label_vocab = unsafe { &*self.label_vocab };
+        self.num_sentences += 1;
+        for (i, token) in sentence.iter().enumerate().skip(1) {
+            if self.is_punct(token.form()) {
+                continue;
+            }
+            self.count += 1;
+            if predicted_heads[i] == token.head().unwrap() as u32 {
+                self.unlabeled_match += 1;
+                if label_vocab.lookup(predicted_labels[i]).unwrap() == token.deprel().unwrap() {
+                    self.labeled_match += 1;
+                }
+            }
+        }
+    }
+
+    pub fn is_punct(&self, word: &str) -> bool {
+        self.re.is_match(word)
+    }
+
+    pub fn uas(&self) -> Result<f32, training::Error> {
+        if self.count == 0 {
+            return Err(training::Error::ZeroDivision);
+        }
+        let score = (self.unlabeled_match as f64 / self.count as f64) as f32 * 100.0;
+        Ok(score)
+    }
+
+    pub fn las(&self) -> Result<f32, training::Error> {
+        if self.count == 0 {
+            return Err(training::Error::ZeroDivision);
+        }
+        let score = (self.labeled_match as f64 / self.count as f64) as f32 * 100.0;
+        Ok(score)
+    }
+
+    pub fn report(&self) {
+        if self.count > 0 {
+            info!(
+                self.logger,
+                "#samples: {}, UAS: {:.6}, LAS: {:.6}",
+                self.num_sentences,
+                self.uas().unwrap(),
+                self.las().unwrap()
+            );
+        } else {
+            info!(
+                self.logger,
+                "#samples: {}, UAS: NaN, LAS: NaN",
+                self.num_sentences,
+            );
+        }
+    }
+}
+
+impl<S: Phrasal> training::Callback<Option<(ParserOutput, Vec<S>)>> for Evaluator {
+    fn on_epoch_validate_begin(
+        &mut self,
+        _info: &training::TrainingInfo<Option<(ParserOutput, Vec<S>)>>,
+    ) {
+        self.reset();
+    }
+
+    fn on_epoch_validate_end(
+        &mut self,
+        _info: &training::TrainingInfo<Option<(ParserOutput, Vec<S>)>>,
+    ) {
+        self.report();
+    }
+
+    fn on_batch_end(&mut self, info: &training::TrainingInfo<Option<(ParserOutput, Vec<S>)>>) {
+        if !info.train {
+            let &(ref outputs, ref sentences) = info.output.as_ref().unwrap().as_ref().unwrap();
+            for (&(ref heads, ref labels), sentence) in outputs.iter().zip(sentences) {
+                self.evaluate(&heads, &labels, sentence);
+            }
         }
     }
 }
