@@ -374,10 +374,11 @@ impl fmt::Display for Accuracy {
     }
 }
 
-impl ops::Add<Accuracy> for Accuracy {
+impl<A: Into<Accuracy>> ops::Add<A> for Accuracy {
     type Output = Accuracy;
 
-    fn add(self, other: Accuracy) -> Self::Output {
+    fn add(self, other: A) -> Self::Output {
+        let other = other.into();
         Accuracy {
             correct: self.correct + other.correct,
             total: self.total + other.total,
@@ -385,10 +386,11 @@ impl ops::Add<Accuracy> for Accuracy {
     }
 }
 
-impl<'a> ops::Add<Accuracy> for &'a Accuracy {
+impl<'a, A: Into<Accuracy>> ops::Add<A> for &'a Accuracy {
     type Output = Accuracy;
 
-    fn add(self, other: Accuracy) -> Self::Output {
+    fn add(self, other: A) -> Self::Output {
+        let other = other.into();
         Accuracy {
             correct: self.correct + other.correct,
             total: self.total + other.total,
@@ -418,8 +420,9 @@ impl<'a, 'b> ops::Add<&'b Accuracy> for &'a Accuracy {
     }
 }
 
-impl ops::AddAssign<Accuracy> for Accuracy {
-    fn add_assign(&mut self, other: Accuracy) {
+impl<A: Into<Accuracy>> ops::AddAssign<A> for Accuracy {
+    fn add_assign(&mut self, other: A) {
+        let other = other.into();
         *self = Accuracy {
             correct: self.correct + other.correct,
             total: self.total + other.total,
