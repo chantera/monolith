@@ -1,12 +1,13 @@
 use std::marker::PhantomData;
 use std::rc::Rc;
+use std::f32::NEG_INFINITY as F32_NEG_INFINITY;
 use std::u32::MAX as U32_MAX;
 
 use monolith::lang::prelude::*;
 use monolith::models::*;
 use monolith::preprocessing::Vocab;
 use monolith::syntax::transition::prelude::*;
-use monolith::syntax::transition::State;
+use monolith::syntax::transition::{ArcStandard, State};
 use monolith::training;
 use primitiv::Model;
 use primitiv::Node;
@@ -16,8 +17,8 @@ use primitiv::initializers as I;
 use regex::Regex;
 use slog::Logger;
 
-/// Vector of (heads, labels) tuples
-pub type ParserOutput = Vec<(Vec<u32>, Vec<u32>)>;
+/// tuple of (heads, labels)
+pub type ParserOutput = (Vec<Option<u32>>, Vec<Option<u32>>);
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ChenManning14Model {
@@ -233,6 +234,75 @@ impl ChenManning14Model {
         }
         (correct, count as u32)
     }
+
+    pub fn parse<WordBatch, PostagBatch, WordIDs, PostagIDs>(
+        &mut self,
+        words: WordBatch,
+        postags: PostagBatch,
+        word_pad_id: u32,
+        postag_pad_id: u32,
+        label_pad_id: u32,
+    ) -> Vec<ParserOutput>
+    where
+        WordBatch: AsRef<[WordIDs]>,
+        PostagBatch: AsRef<[PostagIDs]>,
+        WordIDs: AsRef<[u32]>,
+        PostagIDs: AsRef<[u32]>,
+    {
+        let words: Vec<&[u32]> = words.as_ref().into_iter().map(|x| x.as_ref()).collect();
+        let postags: Vec<&[u32]> = postags.as_ref().into_iter().map(|x| x.as_ref()).collect();
+        let mut states: Vec<(usize, State)> = words
+            .iter()
+            .map(|x| State::new(x.len() as u32))
+            .enumerate()
+            .collect();
+        let mut target_states: Vec<(usize, *mut State)> = states
+            .iter_mut()
+            .map(|&mut (index, ref mut state)| (index, state as *mut _))
+            .collect();
+        while target_states.len() > 0 {
+            let features: Vec<_> = target_states
+                .iter()
+                .map(|&(index, state)| {
+                    let feature = ChenManning14Feature::extract(
+                        unsafe { &*state },
+                        words[index],
+                        postags[index],
+                        word_pad_id,
+                        postag_pad_id,
+                        label_pad_id,
+                    );
+                    [feature]
+                })
+                .collect();
+            let ys = self.forward(features, false);
+            let num_actions = ys.shape().at(0) as usize;
+            let action_scores = ys.to_vector();
+            for i in (0..target_states.len()).rev() {
+                let state: &mut State = unsafe { &mut *target_states.as_mut_slice()[i].1 };
+                let mut best_action = None;
+                let mut best_score = F32_NEG_INFINITY;
+                for action in 0..num_actions {
+                    let score = action_scores[i * num_actions + action];
+                    if score > best_score && ArcStandard::is_allowed(action as u32, state) {
+                        best_action = Some(action as u32);
+                        best_score = score;
+                    }
+                }
+                ArcStandard::apply(best_action.unwrap(), state).unwrap();
+                if ArcStandard::is_terminal(state) {
+                    target_states.remove(i);
+                }
+            }
+        }
+        let outputs = states
+            .iter()
+            .map(|&(_index, ref state)| {
+                (state.heads().to_vec(), state.labels().to_vec())
+            })
+            .collect();
+        outputs
+    }
 }
 
 impl_model!(ChenManning14Model, model);
@@ -271,7 +341,6 @@ impl ChenManning14Feature {
         state: &State,
         words: &[u32],
         postags: &[u32],
-        labels: &[u32],
         pad_word: u32,
         pad_postag: u32,
         pad_label: u32,
@@ -354,18 +423,18 @@ impl ChenManning14Feature {
                 postags.get(rc1_rc1_s1).map(|id| *id).unwrap_or(pad_postag),
             ],
             labels: [
-                labels.get(lc1_s0).map(|id| *id).unwrap_or(pad_label),
-                labels.get(rc1_s0).map(|id| *id).unwrap_or(pad_label),
-                labels.get(lc2_s0).map(|id| *id).unwrap_or(pad_label),
-                labels.get(rc2_s0).map(|id| *id).unwrap_or(pad_label),
-                labels.get(lc1_s1).map(|id| *id).unwrap_or(pad_label),
-                labels.get(rc1_s1).map(|id| *id).unwrap_or(pad_label),
-                labels.get(lc2_s1).map(|id| *id).unwrap_or(pad_label),
-                labels.get(rc2_s1).map(|id| *id).unwrap_or(pad_label),
-                labels.get(lc1_lc1_s0).map(|id| *id).unwrap_or(pad_label),
-                labels.get(rc1_rc1_s0).map(|id| *id).unwrap_or(pad_label),
-                labels.get(lc1_lc1_s1).map(|id| *id).unwrap_or(pad_label),
-                labels.get(rc1_rc1_s1).map(|id| *id).unwrap_or(pad_label),
+                state.label(lc1_s0 as u32).unwrap_or(pad_label),
+                state.label(rc1_s0 as u32).unwrap_or(pad_label),
+                state.label(lc2_s0 as u32).unwrap_or(pad_label),
+                state.label(rc2_s0 as u32).unwrap_or(pad_label),
+                state.label(lc1_s1 as u32).unwrap_or(pad_label),
+                state.label(rc1_s1 as u32).unwrap_or(pad_label),
+                state.label(lc2_s1 as u32).unwrap_or(pad_label),
+                state.label(rc2_s1 as u32).unwrap_or(pad_label),
+                state.label(lc1_lc1_s0 as u32).unwrap_or(pad_label),
+                state.label(rc1_rc1_s0 as u32).unwrap_or(pad_label),
+                state.label(lc1_lc1_s1 as u32).unwrap_or(pad_label),
+                state.label(rc1_rc1_s1 as u32).unwrap_or(pad_label),
             ],
         }
     }
@@ -513,8 +582,8 @@ impl Evaluator {
 
     pub fn evaluate<S: Phrasal>(
         &mut self,
-        predicted_heads: &[u32],
-        predicted_labels: &[u32],
+        predicted_heads: &[Option<u32>],
+        predicted_labels: &[Option<u32>],
         sentence: &S,
     ) {
         let label_vocab = unsafe { &*self.label_vocab };
@@ -524,10 +593,12 @@ impl Evaluator {
                 continue;
             }
             self.count += 1;
-            if predicted_heads[i] == token.head().unwrap() as u32 {
+            if predicted_heads[i] == Some(token.head().unwrap() as u32) {
                 self.unlabeled_match += 1;
-                if label_vocab.lookup(predicted_labels[i]).unwrap() == token.deprel().unwrap() {
-                    self.labeled_match += 1;
+                if let Some(label) = predicted_labels[i] {
+                    if label_vocab.lookup(label).unwrap() == token.deprel().unwrap() {
+                        self.labeled_match += 1;
+                    }
                 }
             }
         }
@@ -572,25 +643,29 @@ impl Evaluator {
     }
 }
 
-impl<S: Phrasal> training::Callback<Option<(ParserOutput, Vec<S>)>> for Evaluator {
+impl<S: Phrasal> training::Callback<Option<(Vec<ParserOutput>, Vec<*const S>)>> for Evaluator {
     fn on_epoch_validate_begin(
         &mut self,
-        _info: &training::TrainingInfo<Option<(ParserOutput, Vec<S>)>>,
+        _info: &training::TrainingInfo<Option<(Vec<ParserOutput>, Vec<*const S>)>>,
     ) {
         self.reset();
     }
 
     fn on_epoch_validate_end(
         &mut self,
-        _info: &training::TrainingInfo<Option<(ParserOutput, Vec<S>)>>,
+        _info: &training::TrainingInfo<Option<(Vec<ParserOutput>, Vec<*const S>)>>,
     ) {
         self.report();
     }
 
-    fn on_batch_end(&mut self, info: &training::TrainingInfo<Option<(ParserOutput, Vec<S>)>>) {
+    fn on_batch_end(
+        &mut self,
+        info: &training::TrainingInfo<Option<(Vec<ParserOutput>, Vec<*const S>)>>,
+    ) {
         if !info.train {
             let &(ref outputs, ref sentences) = info.output.as_ref().unwrap().as_ref().unwrap();
             for (&(ref heads, ref labels), sentence) in outputs.iter().zip(sentences) {
+                let sentence: &S = unsafe { &**sentence };
                 self.evaluate(&heads, &labels, sentence);
             }
         }

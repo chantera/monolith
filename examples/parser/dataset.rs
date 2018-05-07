@@ -45,12 +45,24 @@ impl<O> Preprocessor<O> {
         &self.word_v
     }
 
+    pub fn word_pad_id(&self) -> u32 {
+        self.word_v.get(WORD_PADDING)
+    }
+
     pub fn postag_vocab(&self) -> &Vocab {
         &self.postag_v
     }
 
+    pub fn postag_pad_id(&self) -> u32 {
+        self.postag_v.get(POSTAG_PADDING)
+    }
+
     pub fn label_vocab(&self) -> &Vocab {
         &self.label_v
+    }
+
+    pub fn label_pad_id(&self) -> u32 {
+        self.label_v.get(LABEL_PADDING)
     }
 
     pub fn map_with_fit<T: Tokenized>(&mut self, tokens: &[T]) -> (Vec<u32>, Vec<u32>, Vec<u32>) {
@@ -98,9 +110,9 @@ impl Preprocessor<Vec<ChenManning14Feature>> {
         label_ids: &[u32],
         heads: &[u32],
     ) -> (Vec<ChenManning14Feature>, Vec<u32>) {
-        let word_pad_id = self.word_v.get(WORD_PADDING);
-        let postag_pad_id = self.postag_v.get(POSTAG_PADDING);
-        let label_pad_id = self.label_v.get(LABEL_PADDING);
+        let word_pad_id = self.word_pad_id();
+        let postag_pad_id = self.postag_pad_id();
+        let label_pad_id = self.label_pad_id();
         let heads = transition::projectivize(heads);
         let (state, features) =
             transition::GoldState::with_feature_extract::<transition::ArcStandard, _, _>(
@@ -111,7 +123,6 @@ impl Preprocessor<Vec<ChenManning14Feature>> {
                         state,
                         &word_ids,
                         &postag_ids,
-                        &label_ids,
                         word_pad_id,
                         postag_pad_id,
                         label_pad_id,
@@ -124,29 +135,31 @@ impl Preprocessor<Vec<ChenManning14Feature>> {
 }
 
 impl<P: Phrasal> Preprocess<P> for Preprocessor<Vec<ChenManning14Feature>> {
-    type Output = (Vec<ChenManning14Feature>, Vec<u32>);
+    type Output = (Vec<ChenManning14Feature>, Option<(Vec<u32>, Vec<u32>, P)>, Vec<u32>);
 
     fn fit_each(&mut self, x: &P) -> Option<Self::Output> {
         let (word_ids, postag_ids, label_ids) = self.map_with_fit(x.tokens());
         let heads: Vec<u32> = x.iter().map(|token| token.head().unwrap() as u32).collect();
-        let sample = self.extract_features_and_actions::<<P as Phrasal>::Token>(
+        let (features, actions) = self.extract_features_and_actions::<<P as Phrasal>::Token>(
             &word_ids,
             &postag_ids,
             &label_ids,
             &heads,
         );
+        let sample = (features, None, actions);
         Some(sample)
     }
 
     fn transform_each(&self, x: P) -> Self::Output {
         let (word_ids, postag_ids, label_ids) = self.map(x.tokens());
         let heads: Vec<u32> = x.iter().map(|token| token.head().unwrap() as u32).collect();
-        let sample = self.extract_features_and_actions::<<P as Phrasal>::Token>(
+        let (features, actions) = self.extract_features_and_actions::<<P as Phrasal>::Token>(
             &word_ids,
             &postag_ids,
             &label_ids,
             &heads,
         );
+        let sample = (features, Some((word_ids, postag_ids, x)), actions);
         sample
     }
 }

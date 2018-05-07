@@ -10,6 +10,7 @@ extern crate slog;
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::result::Result;
 
 use monolith::app::prelude::*;
@@ -44,7 +45,7 @@ where
     let save_to = save_to.map(|path| path.as_ref().to_path_buf());
 
     // load datasets and build the NN model
-    let (train_dataset, valid_dataset, mut model) = {
+    let (train_dataset, valid_dataset, mut model, preprocessor) = {
         let mut loader = Loader::new(Preprocessor::new(match embed_file {
             Some(f) => {
                 info!(logger, "embed file: {}", f.as_ref().display());
@@ -75,21 +76,23 @@ where
             serialize::write_to(&loader, path, serialize::Format::Json).unwrap();
         }
         let preprocessor = loader.dispose();
-        let word_vocab = preprocessor.word_vocab();
 
-        let mut builder = ParserBuilder::<ChenManning14Model>::default()
-            .postag(preprocessor.postag_vocab().size(), 50)
-            .label(preprocessor.label_vocab().size(), 50)
-            .mlp(200)
-            .dropout(0.5);
-        info!(logger, "builder: {:?}", builder);
-        builder = if word_vocab.has_embed() {
-            builder.word_embed(word_vocab.embed()?)
-        } else {
-            builder.word(word_vocab.size(), 50)
+        let model = {
+            let word_vocab = preprocessor.word_vocab();
+            let mut builder = ParserBuilder::<ChenManning14Model>::default()
+                .postag(preprocessor.postag_vocab().size(), 50)
+                .label(preprocessor.label_vocab().size(), 50)
+                .mlp(200)
+                .dropout(0.5);
+            info!(logger, "builder: {:?}", builder);
+            builder = if word_vocab.has_embed() {
+                builder.word_embed(word_vocab.embed()?)
+            } else {
+                builder.word(word_vocab.size(), 50)
+            };
+            builder.build()
         };
-        let mut model = builder.build();
-        (train_dataset, valid_dataset, model)
+        (train_dataset, valid_dataset, model, preprocessor)
     };
 
     // configure an optimizer
@@ -108,20 +111,50 @@ where
         c
     });
 
+    // declare pad ids for evaluation
+    let word_pad_id = preprocessor.word_pad_id();
+    let postag_pad_id = preprocessor.postag_pad_id();
+    let label_pad_id = preprocessor.label_pad_id();
+
     // create trainer with a forward function and register callbacks
     let mut trainer = training::Trainer::new(optimizer, |batch: Vec<
         &(Vec<ChenManning14Feature>,
+          Option<_>,
           Vec<u32>),
     >,
      train: bool| {
-        take_cols!((features:0, actions:1); batch, batch_size);
+        take_cols!((features:0, eval_data:1, actions:2); batch, batch_size);
         let ys = model.forward(features, train);
         let loss = model.loss(&ys, &actions);
         let accuracy = model.accuracy(&ys, &actions);
-        (loss, accuracy)
+        if !train {
+            let eval_data: Vec<&(Vec<u32>, Vec<u32>, _)> =
+                eval_data.into_iter().map(|x| x.as_ref().unwrap()).collect();
+            take_cols!((word_ids:0, postag_ids:1, sentences:2); eval_data, batch_size);
+            let predicted_heads_and_labels = model.parse(
+                word_ids,
+                postag_ids,
+                word_pad_id,
+                postag_pad_id,
+                label_pad_id,
+            );
+            let sentences: Vec<*const _> = sentences.into_iter().map(|x| x as *const _).collect();
+            (
+                loss,
+                accuracy,
+                Some((predicted_heads_and_labels, sentences)),
+            )
+        } else {
+            (loss, accuracy, None)
+        }
     });
+    let child_logger = Rc::new(logger.new(o!()));
     trainer.show_progress();
-    trainer.enable_report(logger.new(o!()), 1);
+    trainer.enable_report(child_logger.clone(), 1);
+    trainer.add_callback(
+        "evaluator",
+        Evaluator::new(preprocessor.label_vocab(), child_logger.clone()),
+    );
     if let Some(c) = saver {
         trainer.add_callback("saver", c);
     }
