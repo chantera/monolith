@@ -222,7 +222,7 @@ impl Default for Config {
             filesuffix: None,
             format: Format::Full,
             time_format: TIME_FORMAT.to_string(),
-            use_stderr: false,
+            use_stderr: true,
         }
     }
 }
