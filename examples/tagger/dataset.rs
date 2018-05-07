@@ -6,8 +6,8 @@ use monolith::preprocessing::Vocab;
 
 static CHAR_PADDING: &'static str = "<PAD>";
 
-/// (word_ids, char_ids, tag_ids) of a sentence.
-pub type Sample = (Vec<u32>, Vec<Vec<u32>>, Vec<u32>);
+/// (word_ids, char_ids, option(sentence), tag_ids) of a sentence.
+pub type Sample<T> = (Vec<u32>, Vec<Vec<u32>>, Option<T>, Vec<u32>);
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Preprocessor {
@@ -43,7 +43,7 @@ impl Preprocessor {
 }
 
 impl<T: Phrasal> Preprocess<T> for Preprocessor {
-    type Output = Sample;
+    type Output = Sample<T>;
 
     fn fit_each(&mut self, x: &T) -> Option<Self::Output> {
         let mut word_ids = vec![];
@@ -68,7 +68,7 @@ impl<T: Phrasal> Preprocess<T> for Preprocessor {
             );
             pos_ids.push(self.pos_v.add(token.postag().unwrap().to_string()));
         });
-        Some((word_ids, char_ids, pos_ids))
+        Some((word_ids, char_ids, None, pos_ids))
     }
 
     fn transform_each(&self, x: T) -> Self::Output {
@@ -87,7 +87,7 @@ impl<T: Phrasal> Preprocess<T> for Preprocessor {
             );
             pos_ids.push(self.pos_v.get(token.postag().unwrap()));
         });
-        (word_ids, char_ids, pos_ids)
+        (word_ids, char_ids, Some(x), pos_ids)
     }
 }
 

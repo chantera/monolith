@@ -11,12 +11,11 @@ use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::result::Result;
 
-use monolith::app;
 use monolith::app::prelude::*;
 use monolith::io::serialize;
+use monolith::lang::prelude::*;
 use monolith::preprocessing::Vocab;
-use monolith::training::Trainer;
-use monolith::training::callbacks::Saver;
+use monolith::training;
 use monolith::utils::primitiv as primitiv_utils;
 use primitiv::*;
 use slog::Logger;
@@ -44,17 +43,7 @@ where
     P3: AsRef<Path>,
     P4: AsRef<Path>,
 {
-    // TODO(chantera) do not use `app::get_context()` here
-    let output_path = save_to.map(|dir| {
-        let prefix = app::get_context()
-            .map(|c| {
-                format!("{}-{}", c.accesstime.format("%Y%m%d"), c.accessid)
-            })
-            .unwrap();
-        let mut path = dir.as_ref().to_path_buf();
-        path.push(prefix);
-        path
-    });
+    let save_to = save_to.map(|path| path.as_ref().to_path_buf());
 
     // load datasets and build the NN model
     let (train_dataset, valid_dataset, mut model) = {
@@ -82,7 +71,7 @@ where
                 None
             }
         };
-        if let Some(ref path) = output_path {
+        if let Some(ref path) = save_to.as_ref() {
             let path = format!("{}-loader.json", path.to_str().unwrap());
             info!(logger, "saving the loader to {} ...", path);
             serialize::write_to(&loader, path, serialize::Format::Json).unwrap();
@@ -117,11 +106,11 @@ where
     optimizer.add_model(&mut model);
 
     // initialize a model saver
-    let saver = output_path.map(|path| {
+    let saver = save_to.map(|path| {
         let arch_path = format!("{}-tagger.arch.json", path.to_str().unwrap());
         serialize::write_to(&model, arch_path, serialize::Format::Json).unwrap();
         let model_path = format!("{}-tagger", path.to_str().unwrap());
-        let mut c = Saver::new(&model, &model_path);
+        let mut c = training::callbacks::Saver::new(&model, &model_path);
         c.set_interval(1);
         c.save_from(10);
         c.save_best(true);
@@ -129,15 +118,16 @@ where
     });
 
     // create trainer with a forward function and register callbacks
-    let mut trainer = Trainer::new(optimizer, |mut batch: Vec<&Sample>, train: bool| {
-        sort_batch!(batch);
-        take_cols!((words:0, chars:1, postags:2); batch, batch_size);
-        transpose!(words, chars, postags);
-        let ys = model.forward(words, chars, train);
-        let loss = model.loss(&ys, &postags);
-        let accuracy = model.accuracy(&ys, &postags);
-        (loss, accuracy)
-    });
+    let mut trainer =
+        training::Trainer::new(optimizer, |mut batch: Vec<&Sample<_>>, train: bool| {
+            sort_batch!(batch);
+            take_cols!((words:0, chars:1, sentences:2, postags:3); batch, batch_size);
+            transpose!(words, chars, postags);
+            let ys = model.forward(words, chars, train);
+            let loss = model.loss(&ys, &postags);
+            let accuracy = model.accuracy(&ys, &postags);
+            (loss, accuracy)
+        });
     trainer.show_progress();
     trainer.enable_report(logger.new(o!()), 1);
     if let Some(c) = saver {
@@ -156,9 +146,8 @@ pub fn test<P1: AsRef<Path>, P2: AsRef<Path>>(
     logger: &Logger,
 ) -> Result<(), Box<Error + Send + Sync>> {
     // load datasets and the NN model
-    let (test_dataset, mut model) = {
+    let (test_dataset, mut model, preprocessor) = {
         let (loader_file, arch_file) = {
-            // TODO(chantera) replace `tagger.{\d}.mdl` with `loader.json`
             let dir = model_file.as_ref().parent().unwrap().to_str().unwrap();
             let s = model_file.as_ref().file_name().unwrap().to_str().unwrap();
             let splits: Vec<&str> = s.split('-').take(2).collect();
@@ -173,30 +162,48 @@ pub fn test<P1: AsRef<Path>, P2: AsRef<Path>>(
         info!(logger, "test file: {}", test_file.as_ref().display());
         loader.fix();
         let test_dataset = loader.load(test_file)?;
+        let preprocessor = loader.dispose();
 
         let mut model: Tagger = serialize::read_from(arch_file, serialize::Format::Json)?;
         model.reload();
         model.load(model_file, true)?;
-        (test_dataset, model)
+        (test_dataset, model, preprocessor)
     };
+    let pos_vocab = preprocessor.pos_vocab();
 
     let mut g = Graph::new();
     Graph::set_default(&mut g);
+    let mut overall_loss = 0.0;
+    let mut overall_accuracy = training::Accuracy::new(0, 0);
 
     for mut batch in test_dataset.batch(32, false) {
         g.clear();
         sort_batch!(batch);
-        take_cols!((words:0, chars:1, postags:2); batch, 32);
+        take_cols!((words:0, chars:1, sentences:2, postags:3); batch, 32);
         transpose!(words, chars, postags);
         let ys = model.forward(words, chars, false);
         let loss = model.loss(&ys, &postags);
         let accuracy = model.accuracy(&ys, &postags);
-        println!(
-            "loss: {}, accuracy: {}",
-            loss.to_float(),
-            (accuracy.0 as f32 / accuracy.1 as f32)
-        );
+
+        let mut predicted_postags_batch =
+            vec![Vec::with_capacity(ys.len()); ys[0].shape().batch() as usize];
+        for y_batch in ys {
+            for (index, y) in y_batch.argmax(0).into_iter().enumerate() {
+                predicted_postags_batch[index].push(y);
+            }
+        }
+        for (sentence, predicted_postags) in sentences.iter().zip(predicted_postags_batch) {
+            let token_iter = sentence.as_ref().unwrap().iter();
+            for (token, postag) in token_iter.skip(1).zip(predicted_postags) {
+                print!("{}/{} ", token.form(), pos_vocab.lookup(postag).unwrap());
+            }
+            println!("");
+        }
+
+        overall_loss += loss.to_float();
+        overall_accuracy += accuracy;
     }
+    info!(logger, "loss: {}, {}", overall_loss, overall_accuracy);
 
     Ok(())
 }
@@ -269,6 +276,15 @@ main!(|args: Args, context: Context| match args.command {
     Command::Train(ref c) => {
         let mut dev = primitiv_utils::select_device(c.device);
         devices::set_default(&mut *dev);
+        let output_path = c.save_to.as_ref().map(|dir| {
+            let mut path = dir.clone();
+            path.push(format!(
+                "{}-{}",
+                context.accesstime.format("%Y%m%d"),
+                context.accessid
+            ));
+            path
+        });
         info!(&context.logger, "execute subcommand: {:?}", c);
         train(
             &c.input,
@@ -279,7 +295,7 @@ main!(|args: Args, context: Context| match args.command {
             c.learning_rate,
             c.weight_decay_strength,
             c.gradient_clipping_threshold,
-            c.save_to.as_ref(),
+            output_path,
             &context.logger,
         )
     }
