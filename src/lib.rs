@@ -26,8 +26,6 @@ extern crate slog_term;
 #[macro_use]
 extern crate primitiv;
 #[cfg(feature = "serialize")]
-extern crate byteorder;
-#[cfg(feature = "serialize")]
 extern crate csv;
 #[cfg(feature = "serialize")]
 extern crate serde;

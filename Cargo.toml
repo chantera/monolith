@@ -4,7 +4,6 @@ version = "0.1.0"
 authors = ["Hiroki Teranishi <teranishihiroki@gmail.com>"]
 
 [dependencies]
-byteorder = { version = "1.2", optional = true }
 chan = { version = "0.1", optional = true }
 chan-signal = { version = "0.3", optional = true }
 chrono = { version = "0.4", optional = true }
@@ -35,7 +34,7 @@ app = ["chan", "chan-signal", "logging", "serialize", "structopt", "structopt-de
 dataset-conll = []
 logging = ["chrono", "slog", "slog-async", "slog-term"]
 models = ["primitiv"]
-serialize = ["byteorder", "csv", "serde", "serde_derive", "serde_json", "rmp-serde"]
+serialize = ["csv", "serde", "serde_derive", "serde_json", "rmp-serde"]
 syntax = []
 training = ["logging", "models", "pbr"]
 

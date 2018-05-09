@@ -1,56 +1,17 @@
 use std::fs;
-use std::io as std_io;
-use std::marker::PhantomData;
+use std::io::{self as std_io, Read, Write};
 use std::path::Path;
-use std::u32::MAX as U32_MAX;
 
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
-use serde::de::{DeserializeOwned, Deserializer as SerdeDeserializer};
-use serde::ser::Serializer as SerdeSerializer;
+use serde::de::DeserializeOwned;
 use serde_json;
 use rmp_serde;
-
-use io::{Read, Write};
-use lang::RcString;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Format {
     Json,
     JsonPretty,
     Msgpack,
-}
-
-pub struct Serializer<IO, T> {
-    _phantom: PhantomData<T>,
-    inner: IO,
-    format: Format,
-}
-
-impl<IO, T> Serializer<IO, T> {
-    pub fn new(io: IO, format: Format) -> Self {
-        Serializer {
-            _phantom: PhantomData,
-            inner: io,
-            format: format,
-        }
-    }
-
-    pub fn inner(&self) -> &IO {
-        &self.inner
-    }
-}
-
-impl<IO, T: Serialize> Serializer<IO, T> {
-    pub fn serialize(&self, data: &T) -> std_io::Result<Vec<u8>> {
-        serialize(data, self.format)
-    }
-}
-
-impl<'a, IO, T: Deserialize<'a>> Serializer<IO, T> {
-    pub fn deserialize(&self, bytes: &'a [u8]) -> std_io::Result<T> {
-        deserialize(bytes, self.format)
-    }
 }
 
 pub fn serialize<T: Serialize>(data: &T, format: Format) -> std_io::Result<Vec<u8>> {
@@ -86,9 +47,9 @@ pub fn write_to<P: AsRef<Path>, T: Serialize>(
         .create(true)
         .truncate(true)
         .open(path)?;
-    let mut serializer = Serializer::new(std_io::BufWriter::new(file), format);
-    serializer.write(&[data])?;
-    serializer.flush()
+    let mut writer = std_io::BufWriter::new(file);
+    writer.write(&serialize(data, format)?)?;
+    writer.flush()
 }
 
 pub fn deserialize<'a, T: Deserialize<'a>>(bytes: &'a [u8], format: Format) -> std_io::Result<T> {
@@ -110,95 +71,8 @@ pub fn read_from<P: AsRef<Path>, T: DeserializeOwned>(
     path: P,
     format: Format,
 ) -> std_io::Result<T> {
-    let mut serializer = Serializer::new(std_io::BufReader::new(fs::File::open(path)?), format);
-    let mut buf = Vec::with_capacity(1);
-    serializer.read_upto(1, &mut buf)?;
-    if buf.len() != 1 {
-        Err(std_io::Error::new(
-            std_io::ErrorKind::InvalidData,
-            "broken data",
-        ))
-    } else {
-        Ok(buf.pop().unwrap())
-    }
-}
-
-impl<T: Serialize, IO: std_io::Write> Write for Serializer<IO, T> {
-    type Item = T;
-
-    fn write(&mut self, buf: &[Self::Item]) -> std_io::Result<usize> {
-        for item in buf {
-            let mut bytes = self.serialize(item)?;
-            let len = bytes.len();
-            if len > U32_MAX as usize {
-                return Err(std_io::Error::new(
-                    std_io::ErrorKind::Other,
-                    format!("only supports {} length byte stream", U32_MAX),
-                ));
-            }
-            self.inner.write_u32::<BigEndian>(len as u32)?;
-            bytes.push(b'\n');
-            self.inner.write_all(&bytes)?;
-        }
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> std_io::Result<()> {
-        self.inner.flush()
-    }
-}
-
-impl<T: DeserializeOwned, IO: std_io::Read> Read for Serializer<IO, T> {
-    type Item = T;
-
-    fn read_upto(&mut self, num: usize, buf: &mut Vec<Self::Item>) -> std_io::Result<usize> {
-        let mut count = 0;
-        while count < num {
-            let len = match self.inner.read_u32::<BigEndian>() {
-                Ok(n) => n as usize,
-                Err(e) => {
-                    match e.kind() {
-                        std_io::ErrorKind::UnexpectedEof => break,
-                        _ => return Err(e),
-                    }
-                }
-            };
-            let mut data = vec![0; len + 1];
-            self.inner.read_exact(&mut data)?;
-            if data[len] != b'\n' {
-                return Err(std_io::Error::new(
-                    std_io::ErrorKind::InvalidData,
-                    "broken data",
-                ));
-            }
-            buf.push(self.deserialize(&data[..len])?);
-            count += 1;
-        }
-        Ok(count)
-    }
-}
-
-impl<T, IO: std_io::Seek> std_io::Seek for Serializer<IO, T> {
-    fn seek(&mut self, pos: std_io::SeekFrom) -> std_io::Result<u64> {
-        self.inner.seek(pos)
-    }
-}
-
-impl Serialize for RcString {
-    #[inline]
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: SerdeSerializer,
-    {
-        serializer.serialize_str(self)
-    }
-}
-
-impl<'de> Deserialize<'de> for RcString {
-    fn deserialize<D>(deserializer: D) -> Result<RcString, D::Error>
-    where
-        D: SerdeDeserializer<'de>,
-    {
-        String::deserialize(deserializer).map(|s| RcString::new(s.to_string()))
-    }
+    let mut reader = std_io::BufReader::new(fs::File::open(path)?);
+    let mut buf = Vec::new();
+    reader.read_to_end(&mut buf)?;
+    deserialize(&buf, format)
 }

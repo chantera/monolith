@@ -89,3 +89,31 @@ impl Borrow<str> for RcString {
         self
     }
 }
+
+#[cfg(feature = "serialize")]
+mod serialize {
+    use serde::{Deserialize, Serialize};
+    use serde::de::Deserializer;
+    use serde::ser::Serializer;
+
+    use super::RcString;
+
+    impl Serialize for RcString {
+        #[inline]
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            serializer.serialize_str(self)
+        }
+    }
+
+    impl<'de> Deserialize<'de> for RcString {
+        fn deserialize<D>(deserializer: D) -> Result<RcString, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            String::deserialize(deserializer).map(|s| RcString::new(s.to_string()))
+        }
+    }
+}
