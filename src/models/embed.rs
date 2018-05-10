@@ -2,8 +2,8 @@ use primitiv::Initializer;
 use primitiv::Model;
 use primitiv::Node;
 use primitiv::Parameter;
-use primitiv::initializers as I;
 use primitiv::node_functions as F;
+use primitiv::initializers::Uniform;
 
 #[derive(Debug)]
 #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
@@ -33,14 +33,18 @@ impl Embed {
     }
 
     pub fn init(&mut self, vocab_size: usize, embed_size: u32) {
-        self.init_by_initializer(vocab_size, embed_size, &I::Uniform::new(-0.1, 0.1));
+        self.init_by_initializer(vocab_size, embed_size, &Uniform::new(-0.1, 0.1));
     }
 
-    pub fn init_by_initializer<I: Initializer>(
+    pub fn init_from(&mut self, initializer: impl EmbedInitialize) {
+        initializer.initialize(self);
+    }
+
+    pub fn init_by_initializer(
         &mut self,
         vocab_size: usize,
         embed_size: u32,
-        initializer: &I,
+        initializer: &impl Initializer,
     ) {
         self.lookup.init_by_initializer(
             [embed_size, vocab_size as u32],
@@ -66,11 +70,7 @@ impl Embed {
         );
     }
 
-    pub fn forward<Batch, IDs>(&mut self, xs: Batch) -> Vec<Node>
-    where
-        Batch: AsRef<[IDs]>,
-        IDs: AsRef<[u32]>,
-    {
+    pub fn forward<IDs: AsRef<[u32]>>(&mut self, xs: impl AsRef<[IDs]>) -> Vec<Node> {
         let mut lookup = F::parameter(&mut self.lookup);
         if !self.update_enabled {
             lookup = F::stop_gradient(lookup);
@@ -95,3 +95,42 @@ impl Embed {
 }
 
 impl_model!(Embed, model);
+
+pub trait EmbedInitialize {
+    fn initialize(&self, embed: &mut Embed);
+}
+
+impl EmbedInitialize for (usize, u32) {
+    fn initialize(&self, embed: &mut Embed) {
+        embed.init(self.0, self.1);
+        embed.update_enabled = true;
+    }
+}
+
+impl<I: Initializer> EmbedInitialize for (usize, u32, I) {
+    fn initialize(&self, embed: &mut Embed) {
+        embed.init_by_initializer(self.0, self.1, &self.2);
+        embed.update_enabled = true;
+    }
+}
+
+impl<V: AsRef<[f32]>> EmbedInitialize for Vec<V> {
+    fn initialize(&self, embed: &mut Embed) {
+        embed.init_by_values(self);
+        embed.update_enabled = false;
+    }
+}
+
+impl<'a, V: AsRef<[f32]>> EmbedInitialize for &'a Vec<V> {
+    fn initialize(&self, embed: &mut Embed) {
+        embed.init_by_values(self);
+        embed.update_enabled = false;
+    }
+}
+
+impl<'a, V: AsRef<[f32]>> EmbedInitialize for &'a [V] {
+    fn initialize(&self, embed: &mut Embed) {
+        embed.init_by_values(self);
+        embed.update_enabled = false;
+    }
+}

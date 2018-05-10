@@ -41,78 +41,28 @@ impl Tagger {
     }
 
     pub fn reload(&mut self) {
-        if self.model.get_submodel("word_embed").is_none() {
-            self.word_embed.reload();
-            self.model.add_submodel("word_embed", &mut self.word_embed);
-        }
+        self.word_embed.reload();
+        self.model.add_submodel("word_embed", &mut self.word_embed);
         if let Some(ref mut char_cnn) = self.char_cnn {
-            if self.model.get_submodel("char_cnn").is_none() {
-                char_cnn.reload();
-                self.model.add_submodel("char_cnn", char_cnn);
-            }
+            char_cnn.reload();
+            self.model.add_submodel("char_cnn", char_cnn);
         }
-        if self.model.get_submodel("bilstm").is_none() {
-            self.bilstm.reload();
-            self.model.add_submodel("bilstm", &mut self.bilstm);
-        }
-        if self.model.get_submodel("mlp").is_none() {
-            self.mlp.reload();
-            self.model.add_submodel("mlp", &mut self.mlp);
-        }
+        self.bilstm.reload();
+        self.model.add_submodel("bilstm", &mut self.bilstm);
+        self.mlp.reload();
+        self.model.add_submodel("mlp", &mut self.mlp);
     }
 
     pub fn init(
         &mut self,
-        word_vocab_size: usize,
-        word_embed_size: u32,
+        word_embed: impl EmbedInitialize,
         char_vocab_size: usize,
         char_feature_size: u32,
         lstm_hidden_size: u32,
         mlp_unit: u32,
         out_size: usize,
     ) {
-        self.word_embed.init(word_vocab_size, word_embed_size);
-        self.word_embed.update_enabled = true;
-        self.init_common(
-            char_vocab_size,
-            char_feature_size,
-            lstm_hidden_size,
-            mlp_unit,
-            out_size,
-        );
-    }
-
-    pub fn init_by_values<Entries, Values>(
-        &mut self,
-        word_embed: Entries,
-        char_vocab_size: usize,
-        char_feature_size: u32,
-        lstm_hidden_size: u32,
-        mlp_unit: u32,
-        out_size: usize,
-    ) where
-        Entries: AsRef<[Values]>,
-        Values: AsRef<[f32]>,
-    {
-        self.word_embed.init_by_values(word_embed);
-        self.word_embed.update_enabled = false;
-        self.init_common(
-            char_vocab_size,
-            char_feature_size,
-            lstm_hidden_size,
-            mlp_unit,
-            out_size,
-        );
-    }
-
-    fn init_common(
-        &mut self,
-        char_vocab_size: usize,
-        char_feature_size: u32,
-        lstm_hidden_size: u32,
-        mlp_unit: u32,
-        out_size: usize,
-    ) {
+        self.word_embed.init_from(word_embed);
         let mut bilstm_in_size = self.word_embed.embed_size();
         if let Some(ref mut char_cnn) = self.char_cnn {
             char_cnn.init(
@@ -245,7 +195,7 @@ impl<'a> TaggerBuilder<'a> {
         let mut tagger = Tagger::new(self.use_char_cnn, self.dropout_rate);
         match self.word_embed {
             Some(values) => {
-                tagger.init_by_values(
+                tagger.init(
                     values,
                     self.char_vocab_size,
                     self.char_feature_size,
@@ -256,8 +206,7 @@ impl<'a> TaggerBuilder<'a> {
             }
             None => {
                 tagger.init(
-                    self.word_vocab_size,
-                    self.word_embed_size,
+                    (self.word_vocab_size, self.word_embed_size),
                     self.char_vocab_size,
                     self.char_feature_size,
                     self.lstm_hidden_size,
