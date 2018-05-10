@@ -248,7 +248,7 @@ where
                     }
                     tokens = vec![T::root()];
                 } else if line_trimmed.starts_with("#") {
-                    continue;
+                    // skip
                 } else {
                     tokens.push(try!(T::from_line(&line_trimmed).map_err(|e| {
                         std_io::Error::new(std_io::ErrorKind::InvalidData, e)
