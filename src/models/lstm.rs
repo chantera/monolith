@@ -48,12 +48,8 @@ impl LSTM {
     }
 
     pub fn reload(&mut self) {
-        if self.model.get_parameter("w").is_none() {
-            self.model.add_parameter("w", &mut self.pw);
-        }
-        if self.model.get_parameter("b").is_none() {
-            self.model.add_parameter("b", &mut self.pb);
-        }
+        self.model.add_parameter("w", &mut self.pw);
+        self.model.add_parameter("b", &mut self.pb);
     }
 
     /// Initializes the model.
@@ -191,16 +187,16 @@ impl BiLSTM {
 
     pub fn reload(&mut self) {
         for (i, layer) in self.lstms.iter_mut().enumerate() {
-            let f_lstm_name = format!("{}.f_lstm", i);
-            if self.model.get_submodel(&f_lstm_name).is_none() {
-                layer.0.reload();
-                self.model.add_submodel(&f_lstm_name, &mut layer.0);
-            }
-            let b_lstm_name = format!("{}.b_lstm", i);
-            if self.model.get_submodel(&b_lstm_name).is_none() {
-                layer.1.reload();
-                self.model.add_submodel(&b_lstm_name, &mut layer.1);
-            }
+            layer.0.reload();
+            self.model.add_submodel(
+                &format!("{}.f_lstm", i),
+                &mut layer.0,
+            );
+            layer.1.reload();
+            self.model.add_submodel(
+                &format!("{}.b_lstm", i),
+                &mut layer.1,
+            );
         }
     }
 
@@ -248,10 +244,11 @@ impl BiLSTM {
 
     pub fn forward(
         &mut self,
-        xs: &[Node],
+        xs: impl AsRef<[Node]>,
         init_states: Option<Vec<(Option<Node>, Option<Node>)>>,
         train: bool,
     ) -> Vec<Node> {
+        let xs = xs.as_ref();
         self.reset(init_states, xs[0].shape().batch());
         debug_assert!(self.initialized() && self.ready());
         let mut iter = self.lstms.iter_mut();

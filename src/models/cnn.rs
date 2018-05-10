@@ -30,9 +30,7 @@ impl Conv2D {
     }
 
     pub fn reload(&mut self) {
-        if self.model.get_parameter("w").is_none() {
-            self.model.add_parameter("w", &mut self.pw);
-        }
+        self.model.add_parameter("w", &mut self.pw);
     }
 
     /// Initializes the model.

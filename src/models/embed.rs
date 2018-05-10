@@ -27,9 +27,7 @@ impl Embed {
     }
 
     pub fn reload(&mut self) {
-        if self.model.get_parameter("lookup").is_none() {
-            self.model.add_parameter("lookup", &mut self.lookup);
-        }
+        self.model.add_parameter("lookup", &mut self.lookup);
     }
 
     pub fn init(&mut self, vocab_size: usize, embed_size: u32) {
@@ -52,11 +50,7 @@ impl Embed {
         );
     }
 
-    pub fn init_by_values<Entries, Values>(&mut self, values: Entries)
-    where
-        Entries: AsRef<[Values]>,
-        Values: AsRef<[f32]>,
-    {
+    pub fn init_by_values<V: AsRef<[f32]>>(&mut self, values: impl AsRef<[V]>) {
         debug_assert!(values.as_ref().len() > 0);
         let vocab_size = values.as_ref().len();
         let embed_size = values.as_ref()[0].as_ref().len();

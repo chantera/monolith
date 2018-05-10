@@ -69,14 +69,8 @@ impl MLP {
 
     pub fn reload(&mut self) {
         for (i, layer) in self.layers.iter_mut().enumerate() {
-            let pw_name = format!("{}.w", i);
-            if self.model.get_parameter(&pw_name).is_none() {
-                self.model.add_parameter(&pw_name, &mut layer.pw);
-            }
-            let pb_name = format!("{}.b", i);
-            if self.model.get_parameter(&pb_name).is_none() {
-                self.model.add_parameter(&pb_name, &mut layer.pb);
-            }
+            self.model.add_parameter(&format!("{}.w", i), &mut layer.pw);
+            self.model.add_parameter(&format!("{}.b", i), &mut layer.pb);
         }
     }
 

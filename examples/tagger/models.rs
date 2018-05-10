@@ -80,15 +80,13 @@ impl Tagger {
         );
     }
 
-    pub fn forward<WordBatch, CharsBatch, Chars, WordIDs, CharIDs>(
+    pub fn forward<Chars, WordIDs, CharIDs>(
         &mut self,
-        words: WordBatch,
-        chars: CharsBatch,
+        words: impl AsRef<[WordIDs]>,
+        chars: impl AsRef<[Chars]>,
         train: bool,
     ) -> Vec<Node>
     where
-        WordBatch: AsRef<[WordIDs]>,
-        CharsBatch: AsRef<[Chars]>,
         Chars: AsRef<[CharIDs]>,
         WordIDs: AsRef<[u32]>,
         CharIDs: AsRef<[u32]>,
@@ -121,11 +119,7 @@ impl Tagger {
         ys
     }
 
-    pub fn loss<PosBatch, PosIDs>(&mut self, ys: &[Node], ts: PosBatch) -> Node
-    where
-        PosBatch: AsRef<[PosIDs]>,
-        PosIDs: AsRef<[u32]>,
-    {
+    pub fn loss<IDs: AsRef<[u32]>>(&mut self, ys: &[Node], ts: impl AsRef<[IDs]>) -> Node {
         let batch_size = ys[0].shape().batch();
         let losses: Vec<Node> = ts.as_ref()
             .iter()
@@ -137,11 +131,11 @@ impl Tagger {
         F::sum_nodes(&losses) / batch_size
     }
 
-    pub fn accuracy<PosBatch, PosIDs>(&mut self, ys: &[Node], ts: PosBatch) -> (u32, u32)
-    where
-        PosBatch: AsRef<[PosIDs]>,
-        PosIDs: AsRef<[u32]>,
-    {
+    pub fn accuracy<IDs: AsRef<[u32]>>(
+        &mut self,
+        ys: &[Node],
+        ts: impl AsRef<[IDs]>,
+    ) -> (u32, u32) {
         let mut correct = 0;
         let mut total = 0;
         for (y_batch, t_batch) in ys.iter().zip(ts.as_ref()) {
@@ -342,11 +336,11 @@ impl CharCNN {
 impl_model!(CharCNN, model);
 
 #[inline]
-fn pad<Sequence, IDs>(xs: Sequence, pad_width: usize, pad_id: u32) -> (Vec<Vec<u32>>, Vec<f32>)
-where
-    Sequence: AsRef<[IDs]>,
-    IDs: AsRef<[u32]>,
-{
+fn pad<IDs: AsRef<[u32]>>(
+    xs: impl AsRef<[IDs]>,
+    pad_width: usize,
+    pad_id: u32,
+) -> (Vec<Vec<u32>>, Vec<f32>) {
     let ids_with_len: Vec<(&[u32], usize)> = xs.as_ref()
         .iter()
         .map(|ids| {
