@@ -113,6 +113,31 @@ impl MLP {
         }
         h
     }
+
+    pub fn forward_and_retrieve<N: AsRef<Node>>(
+        &mut self,
+        x: N,
+        train: bool,
+        hiddens: &mut Vec<Node>,
+    ) -> Node {
+        let num_layers = self.layers.len();
+        let mut h = x.as_ref().clone();
+        for (i, layer) in self.layers.iter_mut().enumerate() {
+            let w = F::parameter(&mut layer.pw);
+            let b = F::parameter(&mut layer.pb);
+            if i < num_layers - 1 {
+                h = F::dropout(
+                    activate(self.activation, F::matmul(w, h) + b),
+                    self.dropout_rate,
+                    train,
+                );
+                hiddens.push(h.clone());
+            } else {
+                h = F::matmul(w, h) + b;
+            }
+        }
+        h
+    }
 }
 
 impl_model!(MLP, model);

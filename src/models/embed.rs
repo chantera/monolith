@@ -65,14 +65,18 @@ impl Embed {
     }
 
     pub fn forward<IDs: AsRef<[u32]>>(&mut self, xs: impl AsRef<[IDs]>) -> Vec<Node> {
+        self.forward_iter(xs.as_ref().iter()).collect()
+    }
+
+    pub fn forward_iter<IDs: AsRef<[u32]>>(
+        &mut self,
+        xs: impl Iterator<Item = IDs>,
+    ) -> impl Iterator<Item = Node> {
         let mut lookup = F::parameter(&mut self.lookup);
         if !self.update_enabled {
             lookup = F::stop_gradient(lookup);
         }
-        xs.as_ref()
-            .iter()
-            .map(|x| F::pick(&lookup, x.as_ref(), 1))
-            .collect()
+        xs.map(move |x| F::pick(&lookup, x.as_ref(), 1))
     }
 
     pub fn initialized(&self) -> bool {
