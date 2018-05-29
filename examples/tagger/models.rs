@@ -3,7 +3,6 @@ use std::f32::NEG_INFINITY;
 use monolith::models::*;
 use primitiv::node_functions as F;
 use primitiv::Node;
-use primitiv::Model;
 
 const CHAR_EMBED_SIZE: u32 = 10;
 const CHAR_PAD_ID: u32 = 1;
@@ -11,21 +10,22 @@ const CHAR_WINDOW_SIZE: u32 = 5;
 const NUM_BILSTM_LAYERS: usize = 2;
 const NUM_MLP_LAYERS: usize = 2;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Model, Serialize, Deserialize)]
 pub struct Tagger {
-    #[serde(skip)]
-    model: Model,
+    #[primitiv(submodel)]
     word_embed: Embed,
+    #[primitiv(submodel)]
     char_cnn: Option<CharCNN>,
+    #[primitiv(submodel)]
     bilstm: BiLSTM,
+    #[primitiv(submodel)]
     mlp: MLP,
     dropout_rate: f32,
 }
 
 impl Tagger {
     pub fn new(use_char_cnn: bool, dropout: f32) -> Self {
-        let mut m = Tagger {
-            model: Model::new(),
+        Tagger {
             word_embed: Embed::new(),
             char_cnn: if use_char_cnn {
                 Some(CharCNN::new(CHAR_PAD_ID, dropout))
@@ -35,22 +35,7 @@ impl Tagger {
             bilstm: BiLSTM::new(NUM_BILSTM_LAYERS, dropout),
             mlp: MLP::new(NUM_MLP_LAYERS, Activate::Relu, dropout),
             dropout_rate: dropout,
-        };
-        m.reload();
-        m
-    }
-
-    pub fn reload(&mut self) {
-        self.word_embed.reload();
-        self.model.add_submodel("word_embed", &mut self.word_embed);
-        if let Some(ref mut char_cnn) = self.char_cnn {
-            char_cnn.reload();
-            self.model.add_submodel("char_cnn", char_cnn);
         }
-        self.bilstm.reload();
-        self.model.add_submodel("bilstm", &mut self.bilstm);
-        self.mlp.reload();
-        self.model.add_submodel("mlp", &mut self.mlp);
     }
 
     pub fn init(
@@ -74,10 +59,8 @@ impl Tagger {
             bilstm_in_size += char_feature_size;
         }
         self.bilstm.init(bilstm_in_size, lstm_hidden_size);
-        self.mlp.init(
-            &[lstm_hidden_size * 2, mlp_unit],
-            out_size as u32,
-        );
+        self.mlp
+            .init(&[lstm_hidden_size * 2, mlp_unit], out_size as u32);
     }
 
     pub fn forward<Chars, WordIDs, CharIDs>(
@@ -121,12 +104,11 @@ impl Tagger {
 
     pub fn loss<IDs: AsRef<[u32]>>(&mut self, ys: &[Node], ts: impl AsRef<[IDs]>) -> Node {
         let batch_size = ys[0].shape().batch();
-        let losses: Vec<Node> = ts.as_ref()
+        let losses: Vec<Node> = ts
+            .as_ref()
             .iter()
             .zip(ys)
-            .map(|(t, y)| {
-                F::batch::sum(F::softmax_cross_entropy_with_ids(y, t.as_ref(), 0))
-            })
+            .map(|(t, y)| F::batch::sum(F::softmax_cross_entropy_with_ids(y, t.as_ref(), 0)))
             .collect();
         F::sum_nodes(&losses) / batch_size
     }
@@ -149,8 +131,6 @@ impl Tagger {
         (correct, total)
     }
 }
-
-impl_model!(Tagger, model);
 
 #[derive(Debug)]
 pub struct TaggerBuilder<'a> {
@@ -251,11 +231,11 @@ impl<'a> TaggerBuilder<'a> {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Model, Serialize, Deserialize)]
 pub struct CharCNN {
-    #[serde(skip)]
-    model: Model,
+    #[primitiv(submodel)]
     embed: Embed,
+    #[primitiv(submodel)]
     conv: Conv2D,
     pad_id: u32,
     pad_width: u32,
@@ -264,26 +244,12 @@ pub struct CharCNN {
 
 impl CharCNN {
     pub fn new(pad_id: u32, dropout: f32) -> Self {
-        let mut m = CharCNN {
-            model: Model::new(),
+        CharCNN {
             embed: Embed::new(),
             conv: Conv2D::default(),
             pad_id: pad_id,
             pad_width: 0,
             dropout_rate: dropout,
-        };
-        m.reload();
-        m
-    }
-
-    pub fn reload(&mut self) {
-        if self.model.get_submodel("embed").is_none() {
-            self.embed.reload();
-            self.model.add_submodel("embed", &mut self.embed);
-        }
-        if self.model.get_submodel("conv").is_none() {
-            self.conv.reload();
-            self.model.add_submodel("conv", &mut self.conv);
         }
     }
 
@@ -317,7 +283,8 @@ impl CharCNN {
         let (ids, mask) = pad(xs, self.pad_width as usize, self.pad_id);
         let out_len = mask.len();
         let mut xs = self.embed.forward(ids);
-        xs = xs.into_iter()
+        xs = xs
+            .into_iter()
             .map(|x| {
                 F::concat(
                     F::batch::split(F::dropout(x, self.dropout_rate, train), out_len as u32),
@@ -333,15 +300,14 @@ impl CharCNN {
     }
 }
 
-impl_model!(CharCNN, model);
-
 #[inline]
 fn pad<IDs: AsRef<[u32]>>(
     xs: impl AsRef<[IDs]>,
     pad_width: usize,
     pad_id: u32,
 ) -> (Vec<Vec<u32>>, Vec<f32>) {
-    let ids_with_len: Vec<(&[u32], usize)> = xs.as_ref()
+    let ids_with_len: Vec<(&[u32], usize)> = xs
+        .as_ref()
         .iter()
         .map(|ids| {
             let ids = ids.as_ref();

@@ -1,9 +1,9 @@
+use primitiv::initializers as I;
+use primitiv::node_functions as F;
 use primitiv::Model;
 use primitiv::Node;
 use primitiv::Parameter;
 use primitiv::Shape;
-use primitiv::initializers as I;
-use primitiv::node_functions as F;
 
 /// Hand-written LSTM with input/forget/output gates and no peepholes.
 /// Formulation:
@@ -13,43 +13,26 @@ use primitiv::node_functions as F;
 ///   j = tanh   (W_xj . x[t] + W_hj . h[t-1] + b_j)
 ///   c[t] = i * j + f * c[t-1]
 ///   h[t] = o * tanh(c[t])
-#[derive(Debug)]
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+#[derive(Debug, Model, Serialize, Deserialize)]
 pub struct LSTM {
-    #[cfg_attr(feature = "serialize", serde(skip))]
-    model: Model,
-    #[cfg_attr(feature = "serialize", serde(skip))]
     pw: Parameter,
-    #[cfg_attr(feature = "serialize", serde(skip))]
     pb: Parameter,
-    #[cfg_attr(feature = "serialize", serde(skip))]
     w: Node,
-    #[cfg_attr(feature = "serialize", serde(skip))]
     b: Node,
-    #[cfg_attr(feature = "serialize", serde(skip))]
     h: Node,
-    #[cfg_attr(feature = "serialize", serde(skip))]
     c: Node,
 }
 
 impl LSTM {
     pub fn new() -> Self {
-        let mut m = LSTM {
-            model: Model::new(),
+        LSTM {
             pw: Parameter::new(),
             pb: Parameter::new(),
             w: Node::new(),
             b: Node::new(),
             h: Node::new(),
             c: Node::new(),
-        };
-        m.reload();
-        m
-    }
-
-    pub fn reload(&mut self) {
-        self.model.add_parameter("w", &mut self.pw);
-        self.model.add_parameter("b", &mut self.pb);
+        }
     }
 
     /// Initializes the model.
@@ -58,10 +41,8 @@ impl LSTM {
             [4 * out_size, in_size + out_size],
             &I::Uniform::new(-0.1, 0.1),
         );
-        self.pb.init_by_initializer(
-            [4 * out_size],
-            &I::Constant::new(1.0),
-        );
+        self.pb
+            .init_by_initializer([4 * out_size], &I::Constant::new(1.0));
     }
 
     /// Initializes internal values.
@@ -155,13 +136,8 @@ impl LSTM {
     }
 }
 
-impl_model!(LSTM, model);
-
-#[derive(Debug)]
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct BiLSTM {
-    #[cfg_attr(feature = "serialize", serde(skip))]
-    model: Model,
     lstms: Vec<(LSTM, LSTM)>,
     dropout_rate: f32,
 }
@@ -169,34 +145,10 @@ pub struct BiLSTM {
 impl BiLSTM {
     pub fn new(n_layers: usize, dropout: f32) -> Self {
         assert!(n_layers > 0, "`n_layers` must be greater than 0");
-        let mut model = Model::new();
-        let mut lstms = Vec::with_capacity(n_layers);
-        for i in 0..n_layers {
-            let mut f_lstm = LSTM::new();
-            let mut b_lstm = LSTM::new();
-            model.add_submodel(&format!("{}.f_lstm", i), &mut f_lstm);
-            model.add_submodel(&format!("{}.b_lstm", i), &mut b_lstm);
-            lstms.push((f_lstm, b_lstm));
-        }
+        let lstms = (0..n_layers).map(|_| (LSTM::new(), LSTM::new())).collect();
         BiLSTM {
-            model: model,
             lstms: lstms,
             dropout_rate: dropout,
-        }
-    }
-
-    pub fn reload(&mut self) {
-        for (i, layer) in self.lstms.iter_mut().enumerate() {
-            layer.0.reload();
-            self.model.add_submodel(
-                &format!("{}.f_lstm", i),
-                &mut layer.0,
-            );
-            layer.1.reload();
-            self.model.add_submodel(
-                &format!("{}.b_lstm", i),
-                &mut layer.1,
-            );
         }
     }
 
@@ -306,13 +258,12 @@ impl BiLSTM {
     }
 }
 
-impl_model!(BiLSTM, model);
-
 pub fn transpose_sequence(xs: Vec<Node>) -> Vec<Node> {
     let batch_size = xs[0].shape().batch() as usize;
     let mut lengths = vec![xs.len(); batch_size];
     let mut end = batch_size;
-    let xs: Vec<Node> = xs.into_iter()
+    let xs: Vec<Node> = xs
+        .into_iter()
         .enumerate()
         .map(|(i, x)| {
             let mut s = x.shape();
@@ -338,4 +289,27 @@ pub fn transpose_sequence(xs: Vec<Node>) -> Vec<Node> {
         .zip(lengths.into_iter())
         .map(|(x, len)| F::slice(x, 0, 0, len as u32))
         .collect()
+}
+
+impl Model for BiLSTM {
+    fn register_parameters(&mut self) {
+        let handle: *mut _ = self;
+        unsafe {
+            let model = &mut *handle;
+            for (i, layer) in self.lstms.iter_mut().enumerate() {
+                layer.0.register_parameters();
+                model.add_submodel(&format!("{}.f_lstm", i), &mut layer.0);
+                layer.1.register_parameters();
+                model.add_submodel(&format!("{}.b_lstm", i), &mut layer.1);
+            }
+        }
+    }
+
+    fn identifier(&self) -> u64 {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::Hasher;
+        let mut hasher = DefaultHasher::new();
+        hasher.write(format!("{}-{:p}", "BiLSTM", self).as_bytes());
+        hasher.finish()
+    }
 }

@@ -1,33 +1,21 @@
+use primitiv::initializers::Uniform;
+use primitiv::node_functions as F;
 use primitiv::Initializer;
-use primitiv::Model;
 use primitiv::Node;
 use primitiv::Parameter;
-use primitiv::node_functions as F;
-use primitiv::initializers::Uniform;
 
-#[derive(Debug)]
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+#[derive(Debug, Model, Serialize, Deserialize)]
 pub struct Embed {
-    #[cfg_attr(feature = "serialize", serde(skip))]
-    model: Model,
-    #[cfg_attr(feature = "serialize", serde(skip))]
     lookup: Parameter,
     pub update_enabled: bool,
 }
 
 impl Embed {
     pub fn new() -> Self {
-        let mut m = Embed {
-            model: Model::new(),
+        Embed {
             lookup: Parameter::new(),
             update_enabled: true,
-        };
-        m.reload();
-        m
-    }
-
-    pub fn reload(&mut self) {
-        self.model.add_parameter("lookup", &mut self.lookup);
+        }
     }
 
     pub fn init(&mut self, vocab_size: usize, embed_size: u32) {
@@ -44,10 +32,8 @@ impl Embed {
         embed_size: u32,
         initializer: &impl Initializer,
     ) {
-        self.lookup.init_by_initializer(
-            [embed_size, vocab_size as u32],
-            initializer,
-        );
+        self.lookup
+            .init_by_initializer([embed_size, vocab_size as u32], initializer);
     }
 
     pub fn init_by_values<V: AsRef<[f32]>>(&mut self, values: impl AsRef<[V]>) {
@@ -55,13 +41,12 @@ impl Embed {
         let vocab_size = values.as_ref().len();
         let embed_size = values.as_ref()[0].as_ref().len();
         let mut v = Vec::with_capacity(vocab_size * embed_size);
-        values.as_ref().iter().for_each(|values| {
-            v.extend(values.as_ref().iter().cloned())
-        });
-        self.lookup.init_by_values(
-            [embed_size as u32, vocab_size as u32],
-            &v,
-        );
+        values
+            .as_ref()
+            .iter()
+            .for_each(|values| v.extend(values.as_ref().iter().cloned()));
+        self.lookup
+            .init_by_values([embed_size as u32, vocab_size as u32], &v);
     }
 
     pub fn forward<IDs: AsRef<[u32]>>(&mut self, xs: impl AsRef<[IDs]>) -> Vec<Node> {
@@ -91,8 +76,6 @@ impl Embed {
         self.lookup.shape().at(1) as usize
     }
 }
-
-impl_model!(Embed, model);
 
 pub trait EmbedInitialize {
     fn initialize(&self, embed: &mut Embed);

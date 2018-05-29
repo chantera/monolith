@@ -1,6 +1,6 @@
-use monolith::lang::prelude::*;
-use monolith::dataset::{conll, StdLoader};
 pub use monolith::dataset::Load;
+use monolith::dataset::{conll, StdLoader};
+use monolith::lang::prelude::*;
 use monolith::preprocessing::Preprocess;
 use monolith::preprocessing::Vocab;
 

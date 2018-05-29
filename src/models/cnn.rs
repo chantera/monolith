@@ -1,15 +1,10 @@
-use primitiv::Model;
-use primitiv::Node;
-use primitiv::Parameter;
 use primitiv::initializers as I;
 use primitiv::node_functions as F;
+use primitiv::Node;
+use primitiv::Parameter;
 
-#[derive(Debug)]
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+#[derive(Debug, Model, Serialize, Deserialize)]
 pub struct Conv2D {
-    #[cfg_attr(feature = "serialize", serde(skip))]
-    model: Model,
-    #[cfg_attr(feature = "serialize", serde(skip))]
     pw: Parameter,
     pub padding: (u32, u32),
     pub stride: (u32, u32),
@@ -18,19 +13,12 @@ pub struct Conv2D {
 
 impl Conv2D {
     pub fn new(padding: (u32, u32), stride: (u32, u32), dilation: (u32, u32)) -> Self {
-        let mut m = Conv2D {
-            model: Model::new(),
+        Conv2D {
             pw: Parameter::new(),
             padding: padding,
             stride: stride,
             dilation: dilation,
-        };
-        m.reload();
-        m
-    }
-
-    pub fn reload(&mut self) {
-        self.model.add_parameter("w", &mut self.pw);
+        }
     }
 
     /// Initializes the model.
@@ -59,8 +47,6 @@ impl Conv2D {
         self.pw.valid()
     }
 }
-
-impl_model!(Conv2D, model);
 
 impl Default for Conv2D {
     fn default() -> Self {

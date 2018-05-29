@@ -1,30 +1,23 @@
+use primitiv::initializers as I;
+use primitiv::node_functions as F;
 use primitiv::Model;
 use primitiv::Node;
 use primitiv::Parameter;
-use primitiv::initializers as I;
-use primitiv::node_functions as F;
 
-#[derive(Debug)]
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+#[derive(Debug, Serialize, Deserialize)]
 struct LayerParameter {
-    #[cfg_attr(feature = "serialize", serde(skip))]
     pw: Parameter,
-    #[cfg_attr(feature = "serialize", serde(skip))]
     pb: Parameter,
 }
 
-#[derive(Debug)]
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct MLP {
-    #[cfg_attr(feature = "serialize", serde(skip))]
-    model: Model,
     layers: Vec<LayerParameter>,
     activation: Activate,
     dropout_rate: f32,
 }
 
-#[derive(Copy, Clone, Debug)]
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum Activate {
     Sigmoid,
     Tanh,
@@ -50,27 +43,16 @@ impl MLP {
         if n_layers < 1 {
             panic!("number of layers must be greater than 0.");
         }
-        let mut model = Model::new();
-        let mut layers = Vec::with_capacity(n_layers);
-        for i in 0..n_layers {
-            let mut pw = Parameter::new();
-            let mut pb = Parameter::new();
-            model.add_parameter(&format!("{}.w", i), &mut pw);
-            model.add_parameter(&format!("{}.b", i), &mut pb);
-            layers.push(LayerParameter { pw, pb });
-        }
+        let layers = (0..n_layers)
+            .map(|_| LayerParameter {
+                pw: Parameter::new(),
+                pb: Parameter::new(),
+            })
+            .collect();
         MLP {
-            model: model,
             layers: layers,
             activation: activation,
             dropout_rate: dropout,
-        }
-    }
-
-    pub fn reload(&mut self) {
-        for (i, layer) in self.layers.iter_mut().enumerate() {
-            self.model.add_parameter(&format!("{}.w", i), &mut layer.pw);
-            self.model.add_parameter(&format!("{}.b", i), &mut layer.pb);
         }
     }
 
@@ -87,10 +69,9 @@ impl MLP {
             } else {
                 out_size
             };
-            layer.pw.init_by_initializer(
-                [out, units[i]],
-                &I::XavierUniform::new(1.0),
-            );
+            layer
+                .pw
+                .init_by_initializer([out, units[i]], &I::XavierUniform::new(1.0));
             layer.pb.init_by_initializer([out], &I::Constant::new(0.0));
         }
     }
@@ -140,4 +121,23 @@ impl MLP {
     }
 }
 
-impl_model!(MLP, model);
+impl Model for MLP {
+    fn register_parameters(&mut self) {
+        let handle: *mut _ = self;
+        unsafe {
+            let model = &mut *handle;
+            for (i, layer) in self.layers.iter_mut().enumerate() {
+                model.add_parameter(&format!("{}.w", i), &mut layer.pw);
+                model.add_parameter(&format!("{}.b", i), &mut layer.pb);
+            }
+        }
+    }
+
+    fn identifier(&self) -> u64 {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::Hasher;
+        let mut hasher = DefaultHasher::new();
+        hasher.write(format!("{}-{:p}", "MLP", self).as_bytes());
+        hasher.finish()
+    }
+}

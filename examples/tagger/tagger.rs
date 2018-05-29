@@ -165,7 +165,6 @@ pub fn test<P1: AsRef<Path>, P2: AsRef<Path>>(
         let preprocessor = loader.dispose();
 
         let mut model: Tagger = serialize::read_from(arch_file, serialize::Format::Json)?;
-        model.reload();
         model.load(model_file, true)?;
         (test_dataset, model, preprocessor)
     };

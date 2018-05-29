@@ -1,9 +1,9 @@
-use std::io::{self as std_io, stderr, Stderr, stdout, Stdout, Write};
+use std::io::{self as std_io, stderr, stdout, Stderr, Stdout, Write};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use pbr::ProgressBar as ProgressBarImpl;
-use primitiv::ModelImpl;
+use primitiv::Model;
 use slog::Logger;
 
 use training::{Accuracy, Callback, TrainingInfo};
@@ -32,39 +32,33 @@ impl Reporter {
         accuracy: Option<&Accuracy>,
     ) {
         match accuracy {
-            Some(acc) => {
-                match acc.accuracy() {
-                    Ok(acc_value) => {
-                        info!(
-                            self.logger,
-                            "[{}] epoch {} - #samples: {}, loss: {:.8}, accuracy: {:.8}",
-                            label,
-                            epoch,
-                            n_samples,
-                            loss,
-                            acc_value,
-                        );
-                    }
-                    Err(_) => {
-                        info!(
-                            self.logger,
-                            "[{}] epoch {} - #samples: {}, loss: {:.8}, accuracy: NaN",
-                            label,
-                            epoch,
-                            n_samples,
-                            loss
-                        );
-                    }
+            Some(acc) => match acc.accuracy() {
+                Ok(acc_value) => {
+                    info!(
+                        self.logger,
+                        "[{}] epoch {} - #samples: {}, loss: {:.8}, accuracy: {:.8}",
+                        label,
+                        epoch,
+                        n_samples,
+                        loss,
+                        acc_value,
+                    );
                 }
-            }
+                Err(_) => {
+                    info!(
+                        self.logger,
+                        "[{}] epoch {} - #samples: {}, loss: {:.8}, accuracy: NaN",
+                        label,
+                        epoch,
+                        n_samples,
+                        loss
+                    );
+                }
+            },
             None => {
                 info!(
                     self.logger,
-                    "[{}] epoch {} - #samples: {}, loss: {:.8}",
-                    label,
-                    epoch,
-                    n_samples,
-                    loss
+                    "[{}] epoch {} - #samples: {}, loss: {:.8}", label, epoch, n_samples, loss
                 );
             }
         }
@@ -152,7 +146,7 @@ impl<U> Callback<U> for ProgressBar<Stderr> {
 pub static MODEL_FILE_EXT: &'static str = "mdl";
 
 #[derive(Debug)]
-pub struct Saver<M: ModelImpl> {
+pub struct Saver<M: Model> {
     base_path: PathBuf,
     model: *const M,
     interval: u32,
@@ -161,7 +155,7 @@ pub struct Saver<M: ModelImpl> {
     best_accuracy: f32,
 }
 
-impl<M: ModelImpl> Saver<M> {
+impl<M: Model> Saver<M> {
     pub fn new(model: &M, basename: &str) -> Self {
         Saver::with_base_path(model, utils::path::expandtilde(basename))
     }
@@ -216,7 +210,7 @@ impl<M: ModelImpl> Saver<M> {
     }
 }
 
-impl<U, M: ModelImpl> Callback<U> for Saver<M> {
+impl<U, M: Model> Callback<U> for Saver<M> {
     fn on_epoch_train_end(&mut self, info: &TrainingInfo<U>) {
         if !self.save_best && info.epoch >= self.save_from && info.epoch % self.interval == 0 {
             self.save(Some(&info.epoch.to_string()[..])).unwrap();

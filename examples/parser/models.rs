@@ -1,6 +1,6 @@
+use std::f32::NEG_INFINITY as F32_NEG_INFINITY;
 use std::marker::PhantomData;
 use std::rc::Rc;
-use std::f32::NEG_INFINITY as F32_NEG_INFINITY;
 use std::u32::MAX as U32_MAX;
 
 use monolith::lang::prelude::*;
@@ -9,37 +9,33 @@ use monolith::preprocessing::Vocab;
 use monolith::syntax::transition::prelude::*;
 use monolith::syntax::transition::{ArcStandard, State};
 use monolith::training;
-use primitiv::Model;
+use primitiv::initializers as I;
+use primitiv::node_functions as F;
 use primitiv::Node;
 use primitiv::Parameter;
-use primitiv::node_functions as F;
-use primitiv::initializers as I;
 use regex::Regex;
 use slog::Logger;
 
 /// tuple of (heads, labels)
 pub type ParserOutput = (Vec<Option<u32>>, Vec<Option<u32>>);
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Model, Serialize, Deserialize)]
 pub struct ChenManning14Model {
-    #[serde(skip)]
-    model: Model,
+    #[primitiv(submodel)]
     word_embed: Embed,
+    #[primitiv(submodel)]
     postag_embed: Embed,
+    #[primitiv(submodel)]
     label_embed: Embed,
-    #[serde(skip)]
     pw1: Parameter,
-    #[serde(skip)]
     pb1: Parameter,
-    #[serde(skip)]
     pw2: Parameter,
     dropout_rate: f32,
 }
 
 impl ChenManning14Model {
     pub fn new(dropout: f32) -> Self {
-        let mut m = ChenManning14Model {
-            model: Model::new(),
+        ChenManning14Model {
             word_embed: Embed::new(),
             postag_embed: Embed::new(),
             label_embed: Embed::new(),
@@ -47,38 +43,6 @@ impl ChenManning14Model {
             pb1: Parameter::new(),
             pw2: Parameter::new(),
             dropout_rate: dropout,
-        };
-        m.reload();
-        m
-    }
-
-    pub fn reload(&mut self) {
-        if self.model.get_submodel("word_embed").is_none() {
-            self.word_embed.reload();
-            self.model.add_submodel("word_embed", &mut self.word_embed);
-        }
-        if self.model.get_submodel("postag_embed").is_none() {
-            self.postag_embed.reload();
-            self.model.add_submodel(
-                "postag_embed",
-                &mut self.postag_embed,
-            );
-        }
-        if self.model.get_submodel("label_embed").is_none() {
-            self.label_embed.reload();
-            self.model.add_submodel(
-                "label_embed",
-                &mut self.label_embed,
-            );
-        }
-        if self.model.get_parameter("pw1").is_none() {
-            self.model.add_parameter("pw1", &mut self.pw1);
-        }
-        if self.model.get_parameter("pb1").is_none() {
-            self.model.add_parameter("pb1", &mut self.pb1);
-        }
-        if self.model.get_parameter("pw2").is_none() {
-            self.model.add_parameter("pw2", &mut self.pw2);
         }
     }
 
@@ -141,21 +105,15 @@ impl ChenManning14Model {
     ) {
         self.postag_embed.init(postag_vocab_size, postag_embed_size);
         self.label_embed.init(label_vocab_size, label_embed_size);
-        let feature_dim = self.word_embed.embed_size() * (NUM_CM14_WORD_FEATURES as u32) +
-            postag_embed_size * (NUM_CM14_POSTAG_FEATURES as u32) +
-            label_embed_size * (NUM_CM14_LABEL_FEATURES as u32);
-        self.pw1.init_by_initializer(
-            [mlp_unit, feature_dim],
-            &I::XavierUniform::new(1.0),
-        );
-        self.pb1.init_by_initializer(
-            [mlp_unit],
-            &I::Constant::new(0.0),
-        );
-        self.pw2.init_by_initializer(
-            [out_size as u32, mlp_unit],
-            &I::XavierUniform::new(1.0),
-        );
+        let feature_dim = self.word_embed.embed_size() * (NUM_CM14_WORD_FEATURES as u32)
+            + postag_embed_size * (NUM_CM14_POSTAG_FEATURES as u32)
+            + label_embed_size * (NUM_CM14_LABEL_FEATURES as u32);
+        self.pw1
+            .init_by_initializer([mlp_unit, feature_dim], &I::XavierUniform::new(1.0));
+        self.pb1
+            .init_by_initializer([mlp_unit], &I::Constant::new(0.0));
+        self.pw2
+            .init_by_initializer([out_size as u32, mlp_unit], &I::XavierUniform::new(1.0));
     }
 
     pub fn forward<FeatureBatch, Features>(&mut self, xs: FeatureBatch, train: bool) -> Node
@@ -182,13 +140,11 @@ impl ChenManning14Model {
             .zip(xs_postags.into_iter())
             .zip(xs_labels.into_iter())
             .map(|((x_w, x_p), x_l)| {
-                let x = F::batch::concat(
-                    [
-                        F::dropout(x_w, self.dropout_rate, train),
-                        F::dropout(x_p, self.dropout_rate, train),
-                        F::dropout(x_l, self.dropout_rate, train),
-                    ],
-                );
+                let x = F::batch::concat([
+                    F::dropout(x_w, self.dropout_rate, train),
+                    F::dropout(x_p, self.dropout_rate, train),
+                    F::dropout(x_l, self.dropout_rate, train),
+                ]);
                 let x = F::concat(F::batch::split(x, NUM_CM14_FEATURES as u32), 0);
                 x
             })
@@ -209,9 +165,9 @@ impl ChenManning14Model {
     {
         let batch_size = ts.as_ref().len() as u32;
         let mut actions = Vec::with_capacity(ys.shape().batch() as usize);
-        ts.as_ref().iter().for_each(
-            |t| actions.extend_from_slice(t.as_ref()),
-        );
+        ts.as_ref()
+            .iter()
+            .for_each(|t| actions.extend_from_slice(t.as_ref()));
         let loss = F::batch::sum(F::softmax_cross_entropy_with_ids(ys, &actions, 0));
         loss / batch_size
     }
@@ -297,15 +253,11 @@ impl ChenManning14Model {
         }
         let outputs = states
             .iter()
-            .map(|&(_index, ref state)| {
-                (state.heads().to_vec(), state.labels().to_vec())
-            })
+            .map(|&(_index, ref state)| (state.heads().to_vec(), state.labels().to_vec()))
             .collect();
         outputs
     }
 }
-
-impl_model!(ChenManning14Model, model);
 
 /// Feature template of [Chen and Manning, 2014, EMNLP]
 ///
@@ -332,8 +284,8 @@ pub struct ChenManning14Feature {
 const NUM_CM14_WORD_FEATURES: usize = 18;
 const NUM_CM14_POSTAG_FEATURES: usize = 18;
 const NUM_CM14_LABEL_FEATURES: usize = 12;
-const NUM_CM14_FEATURES: usize = NUM_CM14_WORD_FEATURES + NUM_CM14_POSTAG_FEATURES +
-    NUM_CM14_LABEL_FEATURES;
+const NUM_CM14_FEATURES: usize =
+    NUM_CM14_WORD_FEATURES + NUM_CM14_POSTAG_FEATURES + NUM_CM14_LABEL_FEATURES;
 const PAD_ID: u32 = U32_MAX - 1024;
 
 impl ChenManning14Feature {
@@ -498,9 +450,9 @@ impl<'a, M> ParserBuilder<'a, M> {
 
 impl<'a> ParserBuilder<'a, ChenManning14Model> {
     pub fn build(self) -> ChenManning14Model {
-        let out_size = self.out_size.unwrap_or_else(
-            || self.label_vocab_size * 2 + 1,
-        );
+        let out_size = self
+            .out_size
+            .unwrap_or_else(|| self.label_vocab_size * 2 + 1);
         let mut model = ChenManning14Model::new(self.dropout_rate);
         match self.word_embed {
             Some(values) => {
@@ -636,8 +588,7 @@ impl Evaluator {
         } else {
             info!(
                 self.logger,
-                "#samples: {}, UAS: NaN, LAS: NaN",
-                self.num_sentences,
+                "#samples: {}, UAS: NaN, LAS: NaN", self.num_sentences,
             );
         }
     }
