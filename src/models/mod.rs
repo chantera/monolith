@@ -7,3 +7,4 @@ mod cnn;
 mod embed;
 mod lstm;
 mod mlp;
+pub mod nlp;
