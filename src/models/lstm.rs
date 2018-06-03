@@ -209,8 +209,8 @@ impl BiLSTM {
             let xs_f = xs.iter();
             let xs_b = xs.iter().rev();
             let hs_f = xs_f.map(|x| lstm_f.forward(x));
-            let hs_b = xs_b.map(|x| lstm_b.forward(x)).collect::<Vec<Node>>();
-            hs_f.zip(hs_b.into_iter().rev())
+            let hs_b = xs_b.map(|x| lstm_b.forward(x));
+            hs_f.zip(hs_b.collect::<Vec<Node>>().into_iter().rev())
                 .map(|(h_f, h_b)| F::concat(&[h_f, h_b], 0))
                 .collect()
         };
@@ -222,7 +222,7 @@ impl BiLSTM {
                 let xs_b = xs_next.iter().rev();
                 let hs_f = xs_f.map(|x| lstm_f.forward(F::dropout(x, dropout_rate, train)));
                 let hs_b = xs_b.map(|x| lstm_b.forward(F::dropout(x, dropout_rate, train)));
-                hs_f.zip(hs_b.rev())
+                hs_f.zip(hs_b.collect::<Vec<Node>>().into_iter().rev())
                     .map(|(h_f, h_b)| F::concat(&[h_f, h_b], 0))
                     .collect()
             };
@@ -258,6 +258,29 @@ impl BiLSTM {
     }
 }
 
+impl Model for BiLSTM {
+    fn register_parameters(&mut self) {
+        let handle: *mut _ = self;
+        unsafe {
+            let model = &mut *handle;
+            for (i, layer) in self.lstms.iter_mut().enumerate() {
+                layer.0.register_parameters();
+                model.add_submodel(&format!("{}.f_lstm", i), &mut layer.0);
+                layer.1.register_parameters();
+                model.add_submodel(&format!("{}.b_lstm", i), &mut layer.1);
+            }
+        }
+    }
+
+    fn identifier(&self) -> u64 {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::Hasher;
+        let mut hasher = DefaultHasher::new();
+        hasher.write(format!("{}-{:p}", "BiLSTM", self).as_bytes());
+        hasher.finish()
+    }
+}
+
 pub fn transpose_sequence(xs: Vec<Node>) -> Vec<Node> {
     let batch_size = xs[0].shape().batch() as usize;
     let mut lengths = vec![xs.len(); batch_size];
@@ -289,27 +312,4 @@ pub fn transpose_sequence(xs: Vec<Node>) -> Vec<Node> {
         .zip(lengths.into_iter())
         .map(|(x, len)| F::slice(x, 0, 0, len as u32))
         .collect()
-}
-
-impl Model for BiLSTM {
-    fn register_parameters(&mut self) {
-        let handle: *mut _ = self;
-        unsafe {
-            let model = &mut *handle;
-            for (i, layer) in self.lstms.iter_mut().enumerate() {
-                layer.0.register_parameters();
-                model.add_submodel(&format!("{}.f_lstm", i), &mut layer.0);
-                layer.1.register_parameters();
-                model.add_submodel(&format!("{}.b_lstm", i), &mut layer.1);
-            }
-        }
-    }
-
-    fn identifier(&self) -> u64 {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::Hasher;
-        let mut hasher = DefaultHasher::new();
-        hasher.write(format!("{}-{:p}", "BiLSTM", self).as_bytes());
-        hasher.finish()
-    }
 }
