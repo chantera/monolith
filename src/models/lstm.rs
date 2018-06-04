@@ -41,8 +41,11 @@ impl LSTM {
             [4 * out_size, in_size + out_size],
             &I::Uniform::new(-0.1, 0.1),
         );
-        self.pb
-            .init_by_initializer([4 * out_size], &I::Constant::new(1.0));
+        let mut bias_values = vec![0.0; 4 * out_size as usize];
+        for i in (out_size as usize)..(2 * out_size as usize) {
+            bias_values[i] = 1.0;
+        }
+        self.pb.init_by_values([4 * out_size], &bias_values);
     }
 
     /// Initializes internal values.
@@ -239,15 +242,15 @@ impl BiLSTM {
         self.lstms[0].0.ready()
     }
 
-    // TODO: implement
-    // pub fn get_c(&self) -> &Node {
-    //     &self.c
-    // }
+    pub fn get_c(&self) -> (&Node, &Node) {
+        let (lstm_f, lstm_b) = self.lstms.last().unwrap();
+        (lstm_f.get_c(), lstm_b.get_c())
+    }
 
-    // TODO: implement
-    // pub fn get_h(&self) -> &Node {
-    //     &self.h
-    // }
+    pub fn get_h(&self) -> (&Node, &Node) {
+        let (lstm_f, lstm_b) = self.lstms.last().unwrap();
+        (lstm_f.get_h(), lstm_b.get_h())
+    }
 
     pub fn input_size(&self) -> u32 {
         self.lstms[0].0.input_size()
