@@ -29,7 +29,7 @@ regex = "1.0"
 tempfile = "2.2"
 
 [features]
-default = ["logging", "models", "serialize", "training"]
+default = ["app", "logging", "models", "serialize", "training"]
 app = ["chan", "chan-signal", "logging", "serialize", "structopt", "structopt-derive", "uuid"]
 dataset-conll = []
 logging = ["chrono", "slog", "slog-async", "slog-term"]
