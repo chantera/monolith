@@ -3,7 +3,7 @@ use std::f32::NEG_INFINITY;
 use primitiv::node_functions as F;
 use primitiv::Node;
 
-use models::{Conv2D, Embed};
+use models::{Conv2D, Embed, EmbedInitialize};
 
 /// A Convolutional Neural Network that encodes character level information
 ///
@@ -31,9 +31,10 @@ impl CharCNN {
         }
     }
 
-    pub fn init(&mut self, vocab_size: usize, embed_size: u32, out_size: u32, window_size: u32) {
+    pub fn init<I: EmbedInitialize>(&mut self, char_embed: I, out_size: u32, window_size: u32) {
         assert!(window_size % 2 == 1, "`window_size` must be odd value");
-        self.embed.init(vocab_size, embed_size);
+        self.embed.init_from(char_embed);
+        let embed_size = self.embed.embed_size();
         self.pad_width = window_size / 2;
         let kernel = (embed_size, window_size);
         self.conv.padding = (0, self.pad_width);
