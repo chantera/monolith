@@ -40,7 +40,7 @@ impl Vocab {
             i2s: Vec::with_capacity(capacity),
             freq: Vec::with_capacity(capacity),
             embeddings: None,
-            enabled_serializing_embeddings: true,
+            enabled_serializing_embeddings: false,
         };
         v.add(default_token.into());
         v
