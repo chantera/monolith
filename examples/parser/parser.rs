@@ -3,6 +3,7 @@ extern crate monolith;
 #[macro_use]
 extern crate primitiv;
 extern crate regex;
+extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 #[macro_use]
@@ -10,21 +11,16 @@ extern crate slog;
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
-use std::result::Result;
 
 use monolith::app::prelude::*;
-use monolith::io::serialize;
-use monolith::preprocessing::Vocab;
-use monolith::training;
 use monolith::utils::primitiv as primitiv_utils;
-use primitiv::*;
+use primitiv::{devices, optimizers};
 use slog::Logger;
 
-use self::dataset::*;
-use self::models::*;
+use self::systems::System;
 mod dataset;
 mod models;
+mod systems;
 
 fn train<P1, P2, P3, P4>(
     train_file: P1,
@@ -42,127 +38,81 @@ where
     P3: AsRef<Path>,
     P4: AsRef<Path>,
 {
-    let save_to = save_to.map(|path| path.as_ref().to_path_buf());
+    let system = System::ChenManning14;
+    match system {
+        System::ChenManning14 => {
+            let (train_dataset, valid_dataset, preprocessor): (
+                _,
+                _,
+                systems::chen_manning_14::Preprocessor,
+            ) = dataset::load(
+                train_file,
+                valid_file,
+                embed_file,
+                save_to.as_ref().map(|path| path.as_ref().to_path_buf()),
+                logger,
+            )?;
 
-    // load datasets and build the NN model
-    let (train_dataset, valid_dataset, mut model, preprocessor) = {
-        let mut loader = Loader::new(Preprocessor::new(match embed_file {
-            Some(f) => {
-                info!(logger, "embed file: {}", f.as_ref().display());
-                Vocab::from_cache_or_file(f, "<UNK>")?
-            }
-            None => {
-                info!(logger, "embed file: None");
-                Vocab::new()
-            }
-        }));
-
-        info!(logger, "train file: {}", train_file.as_ref().display());
-        let train_dataset = loader.load(train_file)?;
-        loader.fix();
-        let valid_dataset = match valid_file {
-            Some(f) => {
-                info!(logger, "valid file: {}", f.as_ref().display());
-                Some(loader.load(f)?)
-            }
-            None => {
-                info!(logger, "valid file: None");
-                None
-            }
-        };
-        if let Some(ref path) = save_to.as_ref() {
-            let path = format!("{}-loader.json", path.to_str().unwrap());
-            info!(logger, "saving the loader to {} ...", path);
-            serialize::write_to(&loader, path, serialize::Format::Json).unwrap();
-        }
-        let preprocessor = loader.dispose();
-
-        let model = {
-            let word_vocab = preprocessor.word_vocab();
-            let mut builder = ParserBuilder::<ChenManning14Model>::default()
-                .postag(preprocessor.postag_vocab().size(), 50)
-                .label(preprocessor.label_vocab().size(), 50)
-                .mlp(200)
-                .dropout(0.5);
-            info!(logger, "builder: {:?}", builder);
-            builder = if word_vocab.has_embed() {
-                builder.word_embed(word_vocab.embed()?)
-            } else {
-                builder.word(word_vocab.size(), 50)
+            let builder = {
+                let word_vocab = preprocessor.word_vocab();
+                let mut builder = systems::chen_manning_14::ParserBuilder::default()
+                    .postag(preprocessor.postag_vocab().unwrap().size(), 50)
+                    .label(preprocessor.label_vocab().size(), 50)
+                    .mlp(200)
+                    .dropout(0.5);
+                info!(logger, "builder: {:?}", builder);
+                builder = if word_vocab.has_embed() {
+                    builder.word_embed(word_vocab.embed()?)
+                } else {
+                    builder.word(word_vocab.size(), 50)
+                };
+                builder
             };
-            builder.build()
-        };
-        (train_dataset, valid_dataset, model, preprocessor)
-    };
 
-    // configure an optimizer
-    let mut optimizer = optimizers::AdaGrad::new(learning_rate, 1e-8);
-    optimizer.add_model(&mut model);
+            let word_pad_id = preprocessor.word_pad_id();
+            let postag_pad_id = preprocessor.postag_pad_id();
+            let label_pad_id = preprocessor.label_pad_id();
 
-    // initialize a model saver
-    let saver = save_to.map(|path| {
-        let arch_path = format!("{}-parser.arch.json", path.to_str().unwrap());
-        serialize::write_to(&model, arch_path, serialize::Format::Json).unwrap();
-        let model_path = format!("{}-parser", path.to_str().unwrap());
-        let mut c = training::callbacks::Saver::new(&model, &model_path);
-        c.set_interval(1);
-        c.save_from(10);
-        c.save_best(true);
-        c
-    });
-
-    // declare pad ids for evaluation
-    let word_pad_id = preprocessor.word_pad_id();
-    let postag_pad_id = preprocessor.postag_pad_id();
-    let label_pad_id = preprocessor.label_pad_id();
-
-    // create trainer with a forward function and register callbacks
-    let mut trainer = training::Trainer::new(optimizer, |batch: Vec<
-        &(Vec<ChenManning14Feature>,
-          Option<_>,
-          Vec<u32>),
-    >,
-     train: bool| {
-        take_cols!((features:0, eval_data:1, actions:2); batch, batch_size);
-        let ys = model.forward(features, train);
-        let loss = model.loss(&ys, &actions);
-        let accuracy = model.accuracy(&ys, &actions);
-        if !train {
-            let eval_data: Vec<&(Vec<u32>, Vec<u32>, _)> =
-                eval_data.into_iter().map(|x| x.as_ref().unwrap()).collect();
-            take_cols!((word_ids:0, postag_ids:1, sentences:2); eval_data, batch_size);
-            let predicted_heads_and_labels = model.parse(
-                word_ids,
-                postag_ids,
-                word_pad_id,
-                postag_pad_id,
-                label_pad_id,
-            );
-            let sentences: Vec<*const _> = sentences.into_iter().map(|x| x as *const _).collect();
-            (
-                loss,
-                accuracy,
-                Some((predicted_heads_and_labels, sentences)),
+            models::train(
+                |model, batch, train: bool| {
+                    take_cols!((features:0, eval_data:1, actions:2); batch, batch_size);
+                    let ys = model.forward(features, train);
+                    let loss = model.loss(&ys, &actions);
+                    let accuracy = model.accuracy(&ys, &actions);
+                    if !train {
+                        let eval_data: Vec<&(Vec<u32>, Vec<u32>, _)> =
+                            eval_data.into_iter().map(|x| x.as_ref().unwrap()).collect();
+                        take_cols!((word_ids:0, postag_ids:1, sentences:2); eval_data, batch_size);
+                        let predicted_heads_and_labels = model.parse(
+                            word_ids,
+                            postag_ids,
+                            word_pad_id,
+                            postag_pad_id,
+                            label_pad_id,
+                        );
+                        let sentences: Vec<*const _> =
+                            sentences.into_iter().map(|x| x as *const _).collect();
+                        (
+                            loss,
+                            accuracy,
+                            Some((predicted_heads_and_labels, sentences)),
+                        )
+                    } else {
+                        (loss, accuracy, None)
+                    }
+                },
+                builder.build(),
+                optimizers::AdaGrad::new(learning_rate, 1e-8),
+                train_dataset,
+                valid_dataset,
+                n_epochs,
+                batch_size,
+                Some(preprocessor.label_vocab()),
+                save_to,
+                logger,
             )
-        } else {
-            (loss, accuracy, None)
         }
-    });
-    let child_logger = Rc::new(logger.new(o!()));
-    trainer.show_progress();
-    trainer.enable_report(child_logger.clone(), 1);
-    trainer.add_callback(
-        "evaluator",
-        Evaluator::new(preprocessor.label_vocab(), child_logger.clone()),
-    );
-    if let Some(c) = saver {
-        trainer.add_callback("saver", c);
     }
-
-    // start training
-    trainer.fit(train_dataset, valid_dataset, n_epochs, batch_size);
-
-    Ok(())
 }
 
 fn test<P: AsRef<Path>>(_file: P) -> Result<(), Box<Error + Send + Sync>> {

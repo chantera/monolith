@@ -1,43 +1,53 @@
+use std::io::Result as IOResult;
 use std::marker::PhantomData;
+use std::path::Path;
 
-use monolith::lang::prelude::*;
-use monolith::dataset::{conll, StdLoader};
-pub use monolith::dataset::Load;
-use monolith::preprocessing::Preprocess;
-use monolith::preprocessing::Vocab;
-use monolith::syntax::transition;
-use monolith::syntax::transition::prelude::*;
-
-use models::ChenManning14Feature;
-
-static WORD_PADDING: &'static str = "<PAD>";
-static POSTAG_PADDING: &'static str = "<PAD>";
-static LABEL_PADDING: &'static str = "<PAD>";
+use monolith::dataset::{conll, Dataset, Load, StdLoader};
+use monolith::io::serialize;
+use monolith::lang::{Sentence, Tokenized};
+use monolith::preprocessing::{Preprocess, Vocab};
+use serde::de::DeserializeOwned;
+use serde::ser::Serialize;
+use slog::Logger;
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Preprocessor<O> {
-    _output_type: PhantomData<O>,
-    word_v: Vocab,
-    postag_v: Vocab,
-    label_v: Vocab,
+pub struct Preprocessor<M> {
+    _marker: PhantomData<M>,
+    pub(crate) word_v: Vocab,
+    pub(crate) char_v: Option<Vocab>,
+    pub(crate) postag_v: Option<Vocab>,
+    pub(crate) label_v: Vocab,
 }
 
-impl<O> Preprocessor<O> {
-    pub fn new(mut word_v: Vocab) -> Self {
-        word_v.disable_serializing_embeddings();
-        let mut postag_v = Vocab::with_default_token("NN");
-        let mut label_v = Vocab::with_default_token("dep");
-        word_v.add(WORD_PADDING);
+impl<M> Preprocessor<M> {
+    pub(crate) fn from_vocabs(
+        mut word_v: Vocab,
+        mut char_v: Option<Vocab>,
+        mut postag_v: Option<Vocab>,
+        mut label_v: Vocab,
+    ) -> Self {
         if word_v.has_embed() {
             word_v.init_embed().unwrap();
         }
-        postag_v.add(POSTAG_PADDING);
-        label_v.add(LABEL_PADDING);
+        if let Some(ref mut v) = char_v {
+            if v.has_embed() {
+                v.init_embed().unwrap();
+            }
+        }
+        if let Some(ref mut v) = postag_v {
+            if v.has_embed() {
+                v.init_embed().unwrap();
+            }
+        }
+        if label_v.has_embed() {
+            label_v.init_embed().unwrap();
+        }
         Preprocessor {
-            _output_type: PhantomData,
-            word_v: word_v,
-            postag_v: postag_v,
-            label_v: label_v,
+            _marker: PhantomData,
+            word_v,
+            char_v,
+            postag_v,
+            label_v,
         }
     }
 
@@ -45,30 +55,26 @@ impl<O> Preprocessor<O> {
         &self.word_v
     }
 
-    pub fn word_pad_id(&self) -> u32 {
-        self.word_v.get(WORD_PADDING)
+    pub fn char_vocab(&self) -> Option<&Vocab> {
+        self.char_v.as_ref()
     }
 
-    pub fn postag_vocab(&self) -> &Vocab {
-        &self.postag_v
-    }
-
-    pub fn postag_pad_id(&self) -> u32 {
-        self.postag_v.get(POSTAG_PADDING)
+    pub fn postag_vocab(&self) -> Option<&Vocab> {
+        self.postag_v.as_ref()
     }
 
     pub fn label_vocab(&self) -> &Vocab {
         &self.label_v
     }
 
-    pub fn label_pad_id(&self) -> u32 {
-        self.label_v.get(LABEL_PADDING)
-    }
-
-    pub fn map_with_fit<T: Tokenized>(&mut self, tokens: &[T]) -> (Vec<u32>, Vec<u32>, Vec<u32>) {
+    pub fn map_with_fitting<T: Tokenized>(
+        &mut self,
+        tokens: &[T],
+    ) -> (Vec<u32>, Option<Vec<Vec<u32>>>, Option<Vec<u32>>, Vec<u32>) {
         let len = tokens.len();
         let mut word_ids = Vec::with_capacity(len);
-        let mut postag_ids = Vec::with_capacity(len);
+        let mut char_ids = self.char_vocab().map(|_| Vec::with_capacity(len));
+        let mut postag_ids = self.postag_vocab().map(|_| Vec::with_capacity(len));
         let mut label_ids = Vec::with_capacity(len);
         let fix_word = self.word_v.has_embed();
         tokens.iter().for_each(|token| {
@@ -80,88 +86,88 @@ impl<O> Preprocessor<O> {
             } else {
                 self.word_v.add(form.to_lowercase())
             });
-            postag_ids.push(self.postag_v.add(token.postag().unwrap().to_string()));
-            label_ids.push(self.label_v.add(token.deprel().unwrap().to_string()));
+            if let Some(ref mut buf) = char_ids.as_mut() {
+                let mut v = self.char_v.as_mut().unwrap();
+                buf.push(form.chars().map(|c| v.add(c.to_string())).collect());
+            }
+            if let Some(ref mut buf) = postag_ids.as_mut() {
+                let mut v = self.postag_v.as_mut().unwrap();
+                buf.push(v.add(token.postag().unwrap().to_string()));
+            }
+            label_ids.push(self.label_v.add(token.deprel().unwrap()));
         });
-        (word_ids, postag_ids, label_ids)
+        (word_ids, char_ids, postag_ids, label_ids)
     }
 
-    pub fn map<T: Tokenized>(&self, tokens: &[T]) -> (Vec<u32>, Vec<u32>, Vec<u32>) {
+    pub fn map_without_fitting<T: Tokenized>(
+        &self,
+        tokens: &[T],
+    ) -> (Vec<u32>, Option<Vec<Vec<u32>>>, Option<Vec<u32>>, Vec<u32>) {
         let len = tokens.len();
         let mut word_ids = Vec::with_capacity(len);
-        let mut postag_ids = Vec::with_capacity(len);
+        let mut char_ids = self.char_vocab().map(|_| Vec::with_capacity(len));
+        let mut postag_ids = self.postag_vocab().map(|_| Vec::with_capacity(len));
         let mut label_ids = Vec::with_capacity(len);
         tokens.iter().for_each(|token| {
             let form = token.form();
             word_ids.push(self.word_v.get(&form.to_lowercase()));
-            postag_ids.push(self.postag_v.get(token.postag().unwrap()));
+            if let Some(ref mut buf) = char_ids.as_mut() {
+                let v = self.char_vocab().unwrap();
+                buf.push(form.chars().map(|c| v.get(&c.to_string())).collect());
+            }
+            if let Some(ref mut buf) = postag_ids.as_mut() {
+                let v = self.postag_vocab().unwrap();
+                buf.push(v.get(token.postag().unwrap()));
+            }
             label_ids.push(self.label_v.get(token.deprel().unwrap()));
         });
-        (word_ids, postag_ids, label_ids)
-    }
-}
-
-impl Preprocessor<Vec<ChenManning14Feature>> {
-    /// map a sentence to a feature sequence and an action sequence
-    pub fn extract_features_and_actions<T: Tokenized>(
-        &self,
-        word_ids: &[u32],
-        postag_ids: &[u32],
-        label_ids: &[u32],
-        heads: &[u32],
-    ) -> (Vec<ChenManning14Feature>, Vec<u32>) {
-        let word_pad_id = self.word_pad_id();
-        let postag_pad_id = self.postag_pad_id();
-        let label_pad_id = self.label_pad_id();
-        let heads = transition::projectivize(heads);
-        let (state, features) =
-            transition::GoldState::with_feature_extract::<transition::ArcStandard, _, _>(
-                &heads,
-                &label_ids,
-                |state| {
-                    ChenManning14Feature::extract(
-                        state,
-                        &word_ids,
-                        &postag_ids,
-                        word_pad_id,
-                        postag_pad_id,
-                        label_pad_id,
-                    )
-                },
-            ).unwrap();
-        let actions = Vec::from(state.actions());
-        (features, actions)
-    }
-}
-
-impl<P: Phrasal> Preprocess<P> for Preprocessor<Vec<ChenManning14Feature>> {
-    type Output = (Vec<ChenManning14Feature>, Option<(Vec<u32>, Vec<u32>, P)>, Vec<u32>);
-
-    fn fit_each(&mut self, x: &P) -> Option<Self::Output> {
-        let (word_ids, postag_ids, label_ids) = self.map_with_fit(x.tokens());
-        let heads: Vec<u32> = x.iter().map(|token| token.head().unwrap() as u32).collect();
-        let (features, actions) = self.extract_features_and_actions::<<P as Phrasal>::Token>(
-            &word_ids,
-            &postag_ids,
-            &label_ids,
-            &heads,
-        );
-        let sample = (features, None, actions);
-        Some(sample)
-    }
-
-    fn transform_each(&self, x: P) -> Self::Output {
-        let (word_ids, postag_ids, label_ids) = self.map(x.tokens());
-        let heads: Vec<u32> = x.iter().map(|token| token.head().unwrap() as u32).collect();
-        let (features, actions) = self.extract_features_and_actions::<<P as Phrasal>::Token>(
-            &word_ids,
-            &postag_ids,
-            &label_ids,
-            &heads,
-        );
-        let sample = (features, Some((word_ids, postag_ids, x)), actions);
-        sample
+        (word_ids, char_ids, postag_ids, label_ids)
     }
 }
 
 pub type Loader<'a, P> = StdLoader<Sentence<conll::Token<'a>>, P>;
+
+pub fn load<'a, P, P1, P2, P3, P4>(
+    train_file: P1,
+    valid_file: Option<P2>,
+    embed_file: Option<P3>,
+    save_to: Option<P4>,
+    logger: &Logger,
+) -> IOResult<(Dataset<P::Output>, Option<Dataset<P::Output>>, P)>
+where
+    P: Preprocess<Sentence<conll::Token<'a>>> + From<Vocab> + Serialize + DeserializeOwned,
+    P1: AsRef<Path>,
+    P2: AsRef<Path>,
+    P3: AsRef<Path>,
+    P4: AsRef<Path>,
+{
+    let mut loader = Loader::new(P::from(match embed_file {
+        Some(f) => {
+            info!(logger, "embed file: {}", f.as_ref().display());
+            Vocab::from_cache_or_file(f, "<UNK>")?
+        }
+        None => {
+            info!(logger, "embed file: None");
+            Vocab::new()
+        }
+    }));
+    info!(logger, "train file: {}", train_file.as_ref().display());
+    let train_dataset = loader.load(train_file)?;
+    loader.fix();
+    let valid_dataset = match valid_file {
+        Some(f) => {
+            info!(logger, "valid file: {}", f.as_ref().display());
+            Some(loader.load(f)?)
+        }
+        None => {
+            info!(logger, "valid file: None");
+            None
+        }
+    };
+    if let Some(ref path) = save_to.as_ref() {
+        let path = format!("{}-loader.json", path.as_ref().to_str().unwrap());
+        info!(logger, "saving the loader to {} ...", path);
+        serialize::write_to(&loader, path, serialize::Format::Json).unwrap();
+    }
+    Ok((train_dataset, valid_dataset, loader.dispose()))
+}
