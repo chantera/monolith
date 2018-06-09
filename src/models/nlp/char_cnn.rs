@@ -1,7 +1,7 @@
 use std::f32::NEG_INFINITY;
 
-use primitiv::node_functions as F;
-use primitiv::Node;
+use primitiv::functions as F;
+use primitiv::Variable;
 
 use models::{Conv2D, Embed, EmbedInitialize};
 
@@ -21,19 +21,19 @@ pub struct CharCNN {
 }
 
 impl CharCNN {
-    pub fn new(pad_id: u32, dropout: f32) -> Self {
+    pub fn new(pad_id: u32, dropout_rate: f32) -> Self {
         CharCNN {
             embed: Embed::new(),
             conv: Conv2D::default(),
-            pad_id: pad_id,
+            pad_id,
             pad_width: 0,
-            dropout_rate: dropout,
+            dropout_rate,
         }
     }
 
     pub fn init<I: EmbedInitialize>(&mut self, char_embed: I, out_size: u32, window_size: u32) {
         assert!(window_size % 2 == 1, "`window_size` must be odd value");
-        self.embed.init_from(char_embed);
+        self.embed.init_by(char_embed);
         let embed_size = self.embed.embed_size();
         self.pad_width = window_size / 2;
         let kernel = (embed_size, window_size);
@@ -42,38 +42,45 @@ impl CharCNN {
         self.conv.init(1, out_size, kernel);
     }
 
-    pub fn forward<Batch, Sequence, IDs>(&mut self, xs: Batch, train: bool) -> Vec<Node>
+    pub fn forward<V: Variable, Seq, IDs>(&mut self, xs: &[Seq], train: bool) -> Vec<V>
     where
-        Batch: AsRef<[Sequence]>,
-        Sequence: AsRef<[IDs]>,
+        Seq: AsRef<[IDs]>,
         IDs: AsRef<[u32]>,
     {
-        xs.as_ref()
-            .iter()
-            .map(|seq| self.forward_sequence(seq, train))
-            .collect()
+        self.forward_iter(xs.iter(), train).collect()
     }
 
-    pub fn forward_sequence<Sequence, IDs>(&mut self, xs: Sequence, train: bool) -> Node
+    pub fn forward_iter<'a, V: Variable, It: 'a + Iterator<Item = Seq>, Seq, IDs>(
+        &'a mut self,
+        xs: It,
+        train: bool,
+    ) -> impl 'a + Iterator<Item = V>
     where
-        Sequence: AsRef<[IDs]>,
+        Seq: AsRef<[IDs]>,
+        IDs: AsRef<[u32]>,
+    {
+        xs.map(move |seq| self.forward_sequence(seq.as_ref(), train))
+    }
+
+    pub fn forward_sequence<V: Variable, IDs>(&mut self, xs: &[IDs], train: bool) -> V
+    where
         IDs: AsRef<[u32]>,
     {
         let (ids, mask) = pad(xs, self.pad_width as usize, self.pad_id);
         let out_len = mask.len();
-        let mut xs = self.embed.forward(ids);
-        xs = xs
-            .into_iter()
-            .map(|x| {
+        let xs: Vec<V> = self
+            .embed
+            .forward_iter(ids.into_iter())
+            .map(|x: V| {
                 F::concat(
                     F::batch::split(F::dropout(x, self.dropout_rate, train), out_len as u32),
                     1,
                 )
             })
-            .collect::<Vec<_>>();
-        let xs = F::batch::concat(xs);
-        let hs = self.conv.forward(xs);
-        let mask = F::broadcast(F::input([1, out_len as u32, 1], &mask), 2, hs.shape().at(2));
+            .collect();
+        let hs = self.conv.forward(F::batch::concat(xs));
+        let mask =
+            F::broadcast::<V, _>(F::input([1, out_len as u32, 1], &mask), 2, hs.shape().at(2));
         let ys = F::flatten(F::max(hs + mask, 1));
         ys
     }

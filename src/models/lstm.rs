@@ -1,9 +1,9 @@
-use primitiv::initializers as I;
-use primitiv::node_functions as F;
+use primitiv::functions as F;
+use primitiv::initializers::Uniform;
+use primitiv::Initializer;
 use primitiv::Model;
-use primitiv::Node;
 use primitiv::Parameter;
-use primitiv::Shape;
+use primitiv::Variable;
 
 /// Hand-written LSTM with input/forget/output gates and no peepholes.
 /// Formulation:
@@ -14,33 +14,41 @@ use primitiv::Shape;
 ///   c[t] = i * j + f * c[t-1]
 ///   h[t] = o * tanh(c[t])
 #[derive(Debug, Model, Serialize, Deserialize)]
-pub struct LSTM {
+pub struct LSTMCell<V: Variable> {
     pw: Parameter,
     pb: Parameter,
-    w: Node,
-    b: Node,
-    h: Node,
-    c: Node,
+    w: V,
+    b: V,
+    h: V,
+    c: V,
 }
 
-impl LSTM {
+impl<V: Variable> LSTMCell<V> {
     pub fn new() -> Self {
-        LSTM {
+        LSTMCell {
             pw: Parameter::new(),
             pb: Parameter::new(),
-            w: Node::new(),
-            b: Node::new(),
-            h: Node::new(),
-            c: Node::new(),
+            w: V::default(),
+            b: V::default(),
+            h: V::default(),
+            c: V::default(),
         }
     }
 
     /// Initializes the model.
     pub fn init(&mut self, in_size: u32, out_size: u32) {
-        self.pw.init_by_initializer(
-            [4 * out_size, in_size + out_size],
-            &I::Uniform::new(-0.1, 0.1),
-        );
+        self.init_by_initializer(in_size, out_size, &Self::default_initializer());
+    }
+
+    /// Initializes the model by a initializer.
+    pub fn init_by_initializer<I: Initializer>(
+        &mut self,
+        in_size: u32,
+        out_size: u32,
+        initializer: &I,
+    ) {
+        self.pw
+            .init_by_initializer([4 * out_size, in_size + out_size], initializer);
         let mut bias_values = vec![0.0; 4 * out_size as usize];
         for i in (out_size as usize)..(2 * out_size as usize) {
             bias_values[i] = 1.0;
@@ -49,28 +57,38 @@ impl LSTM {
     }
 
     /// Initializes internal values.
-    pub fn reset(&mut self, init_c: Option<Node>, init_h: Option<Node>) {
+    pub fn reset(&mut self, init_c: Option<V>, init_h: Option<V>) {
         let out_size = self.pw.shape().at(0) / 4;
         self.w = F::parameter(&mut self.pw);
         self.b = F::parameter(&mut self.pb);
-        self.c = init_c
-            .and_then(|n| if n.valid() { Some(n) } else { None })
-            .unwrap_or(F::zeros([out_size]));
-        self.h = init_h
-            .and_then(|n| if n.valid() { Some(n) } else { None })
-            .unwrap_or(F::zeros([out_size]));
+        self.c = match init_c {
+            Some(v) => {
+                assert!(v.valid(), "init_c must be valid");
+                v
+            }
+            None => F::zeros([out_size]),
+        };
+        self.h = match init_h {
+            Some(v) => {
+                assert!(v.valid(), "init_h must be valid");
+                v
+            }
+            None => F::zeros([out_size]),
+        };
     }
 
     /// One step forwarding.
-    pub fn forward<N: AsRef<Node>>(&mut self, x: N) -> Node {
+    pub fn forward<X: AsRef<V>>(&mut self, x: X) -> V {
+        debug_assert!(self.w.valid(), "call `reset` before forward");
         let x = x.as_ref();
-        let (lstm_in, h_rest): (Node, Option<Node>) = {
+        let (lstm_in, h_rest): (V, Option<V>) = {
             let prev_batch = self.h.shape().batch();
             if prev_batch > 1 {
                 let batch = x.shape().batch();
                 if batch > prev_batch {
                     panic!(
-                        "batch size must be smaller than or equal to the previous batch size: x.shape: {}, lstm.h.shape: {}",
+                        "batch size must be smaller than or equal to the previous batch size: \
+                         x.shape: {}, lstm.h.shape: {}",
                         x.shape(),
                         self.h.shape()
                     );
@@ -113,19 +131,11 @@ impl LSTM {
         }
     }
 
-    pub fn initialized(&self) -> bool {
-        self.pw.valid()
-    }
-
-    pub fn ready(&self) -> bool {
-        self.w.valid()
-    }
-
-    pub fn get_c(&self) -> &Node {
+    pub fn cell_state(&self) -> &V {
         &self.c
     }
 
-    pub fn get_h(&self) -> &Node {
+    pub fn hidden_state(&self) -> &V {
         &self.h
     }
 
@@ -137,95 +147,200 @@ impl LSTM {
     pub fn output_size(&self) -> u32 {
         self.pw.shape().at(0) / 4
     }
+
+    pub fn default_initializer() -> impl Initializer {
+        Uniform::new(-0.1, 0.1)
+    }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct BiLSTM {
-    lstms: Vec<(LSTM, LSTM)>,
+#[derive(Debug, Model, Serialize, Deserialize)]
+pub struct LSTM<V: Variable> {
+    #[primitiv(submodel)]
+    lstm_cells: Vec<LSTMCell<V>>,
     dropout_rate: f32,
 }
 
-impl BiLSTM {
-    pub fn new(n_layers: usize, dropout: f32) -> Self {
+impl<V: Variable> LSTM<V> {
+    pub fn new(n_layers: usize, dropout_rate: f32) -> Self {
         assert!(n_layers > 0, "`n_layers` must be greater than 0");
-        let lstms = (0..n_layers).map(|_| (LSTM::new(), LSTM::new())).collect();
-        BiLSTM {
-            lstms: lstms,
-            dropout_rate: dropout,
+        LSTM {
+            lstm_cells: (0..n_layers).map(|_| LSTMCell::new()).collect(),
+            dropout_rate,
         }
     }
 
-    /// Initializes the model.
     pub fn init(&mut self, in_size: u32, out_size: u32) {
-        let mut iter = self.lstms.iter_mut();
-        {
-            let &mut (ref mut lstm_f, ref mut lstm_b) = iter.next().unwrap();
-            lstm_f.init(in_size, out_size);
-            lstm_b.init(in_size, out_size);
-        }
-        for &mut (ref mut lstm_f, ref mut lstm_b) in iter {
-            lstm_f.init(out_size * 2, out_size);
-            lstm_b.init(out_size * 2, out_size);
+        self.init_by_initializer(in_size, out_size, &Self::default_initializer());
+    }
+
+    pub fn init_by_initializer<I: Initializer>(
+        &mut self,
+        in_size: u32,
+        out_size: u32,
+        initializer: &I,
+    ) {
+        for lstm_cell in &mut self.lstm_cells {
+            lstm_cell.init_by_initializer(in_size, out_size, initializer);
         }
     }
 
-    /// Initializes internal values.
-    fn reset(&mut self, init_states: Option<Vec<(Option<Node>, Option<Node>)>>, batch_size: u32) {
-        let num_layers = self.lstms.len() * 2;
-        let out_size = self.output_size() / 2;
-        let mut states = init_states.unwrap_or(vec![]);
-        debug_assert!(states.len() <= num_layers);
-        for _ in 0..(num_layers - states.len()) {
-            states.push((
-                Some(F::zeros(Shape::from_dims(&[out_size], batch_size))),
-                Some(F::zeros(Shape::from_dims(&[out_size], batch_size))),
+    fn reset(&mut self, init_states: Option<Vec<(Option<V>, Option<V>)>>, batch_size: u32) {
+        let num_cells = self.lstm_cells.len();
+        let out_size = self.output_size();
+        let mut init_states = init_states.unwrap_or(Vec::with_capacity(num_cells));
+        debug_assert!(init_states.len() <= num_cells);
+        for _ in 0..(num_cells - init_states.len()) {
+            init_states.push((
+                Some(F::zeros(([out_size], batch_size))),
+                Some(F::zeros(([out_size], batch_size))),
             ));
         }
-        for (i, (c, h)) in states.into_iter().enumerate() {
-            let (ref mut lstm_f, ref mut lstm_b) = self.lstms[i / 2];
+        for (lstm_cell, (c, h)) in self.lstm_cells.iter_mut().zip(init_states) {
+            lstm_cell.reset(c, h)
+        }
+    }
+
+    pub fn forward<X: AsRef<[V]>>(
+        &mut self,
+        xs: X,
+        init_states: Option<Vec<(Option<V>, Option<V>)>>,
+        train: bool,
+    ) -> Vec<V> {
+        let xs = xs.as_ref();
+        self.reset(init_states, xs[0].shape().batch());
+        let mut iter = self.lstm_cells.iter_mut();
+        let hs = {
+            let lstm_cell = iter.next().unwrap();
+            xs.iter().map(|x| lstm_cell.forward(x)).collect()
+        };
+        let mut xs_next: Vec<V> = hs;
+        let dropout_rate = self.dropout_rate;
+        for lstm_cell in iter {
+            xs_next = xs_next
+                .iter()
+                .map(|x| lstm_cell.forward(F::dropout(x, dropout_rate, train)))
+                .collect();
+        }
+        xs_next
+    }
+
+    pub fn cell_state(&self) -> &V {
+        self.lstm_cells.last().unwrap().cell_state()
+    }
+
+    pub fn hidden_state(&self) -> &V {
+        self.lstm_cells.last().unwrap().hidden_state()
+    }
+
+    pub fn input_size(&self) -> u32 {
+        self.lstm_cells[0].input_size()
+    }
+
+    pub fn output_size(&self) -> u32 {
+        self.lstm_cells[0].output_size()
+    }
+
+    pub fn default_initializer() -> impl Initializer {
+        LSTMCell::<V>::default_initializer()
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BiLSTM<V: Variable> {
+    lstm_cells: Vec<(LSTMCell<V>, LSTMCell<V>)>,
+    dropout_rate: f32,
+}
+
+impl<V: Variable> BiLSTM<V> {
+    pub fn new(n_layers: usize, dropout_rate: f32) -> Self {
+        assert!(n_layers > 0, "`n_layers` must be greater than 0");
+        BiLSTM {
+            lstm_cells: (0..n_layers)
+                .map(|_| (LSTMCell::new(), LSTMCell::new()))
+                .collect(),
+            dropout_rate,
+        }
+    }
+
+    pub fn init(&mut self, in_size: u32, out_size: u32) {
+        self.init_by_initializer(in_size, out_size, &Self::default_initializer());
+    }
+
+    pub fn init_by_initializer<I: Initializer>(
+        &mut self,
+        in_size: u32,
+        out_size: u32,
+        initializer: &I,
+    ) {
+        let mut iter = self.lstm_cells.iter_mut();
+        {
+            let (lstm_cell_f, lstm_cell_b) = iter.next().unwrap();
+            lstm_cell_f.init_by_initializer(in_size, out_size, initializer);
+            lstm_cell_b.init_by_initializer(in_size, out_size, initializer);
+        }
+        for (lstm_cell_f, lstm_cell_b) in iter {
+            lstm_cell_f.init_by_initializer(out_size * 2, out_size, initializer);
+            lstm_cell_b.init_by_initializer(out_size * 2, out_size, initializer);
+        }
+    }
+
+    fn reset(&mut self, init_states: Option<Vec<(Option<V>, Option<V>)>>, batch_size: u32) {
+        let num_cells = self.lstm_cells.len() * 2;
+        let out_size = self.output_size() / 2;
+        let mut init_states = init_states.unwrap_or(Vec::with_capacity(num_cells));
+        debug_assert!(init_states.len() <= num_cells);
+        for _ in 0..(num_cells - init_states.len()) {
+            init_states.push((
+                Some(F::zeros(([out_size], batch_size))),
+                Some(F::zeros(([out_size], batch_size))),
+            ));
+        }
+        for (i, (c, h)) in init_states.into_iter().enumerate() {
+            let (lstm_cell_f, lstm_cell_b) = &mut self.lstm_cells[i / 2];
             if i % 2 == 0 {
-                lstm_f.reset(c, h);
+                lstm_cell_f.reset(c, h);
             } else {
-                if let Some(ref init_c) = c {
-                    debug_assert!(init_c.shape().batch() == batch_size);
+                if cfg!(debug_assertion) {
+                    if let Some(ref c) = c {
+                        debug_assert!(c.shape().batch() == batch_size);
+                    }
+                    if let Some(ref h) = h {
+                        debug_assert!(h.shape().batch() == batch_size);
+                    }
                 }
-                if let Some(ref init_h) = h {
-                    debug_assert!(init_h.shape().batch() == batch_size);
-                }
-                lstm_b.reset(c, h);
+                lstm_cell_b.reset(c, h);
             }
         }
     }
 
-    pub fn forward(
+    pub fn forward<X: AsRef<[V]>>(
         &mut self,
-        xs: impl AsRef<[Node]>,
-        init_states: Option<Vec<(Option<Node>, Option<Node>)>>,
+        xs: X,
+        init_states: Option<Vec<(Option<V>, Option<V>)>>,
         train: bool,
-    ) -> Vec<Node> {
+    ) -> Vec<V> {
         let xs = xs.as_ref();
         self.reset(init_states, xs[0].shape().batch());
-        debug_assert!(self.initialized() && self.ready());
-        let mut iter = self.lstms.iter_mut();
+        let mut iter = self.lstm_cells.iter_mut();
         let hs = {
-            let &mut (ref mut lstm_f, ref mut lstm_b) = iter.next().unwrap();
+            let (lstm_cell_f, lstm_cell_b) = iter.next().unwrap();
             let xs_f = xs.iter();
             let xs_b = xs.iter().rev();
-            let hs_f = xs_f.map(|x| lstm_f.forward(x));
-            let hs_b = xs_b.map(|x| lstm_b.forward(x));
-            hs_f.zip(hs_b.collect::<Vec<Node>>().into_iter().rev())
+            let hs_f = xs_f.map(|x| lstm_cell_f.forward(x));
+            let hs_b = xs_b.map(|x| lstm_cell_b.forward(x));
+            hs_f.zip(hs_b.collect::<Vec<V>>().into_iter().rev())
                 .map(|(h_f, h_b)| F::concat(&[h_f, h_b], 0))
                 .collect()
         };
-        let mut xs_next: Vec<Node> = hs;
+        let mut xs_next: Vec<V> = hs;
         let dropout_rate = self.dropout_rate;
-        for &mut (ref mut lstm_f, ref mut lstm_b) in iter {
+        for (lstm_cell_f, lstm_cell_b) in iter {
             let hs = {
                 let xs_f = xs_next.iter();
                 let xs_b = xs_next.iter().rev();
-                let hs_f = xs_f.map(|x| lstm_f.forward(F::dropout(x, dropout_rate, train)));
-                let hs_b = xs_b.map(|x| lstm_b.forward(F::dropout(x, dropout_rate, train)));
-                hs_f.zip(hs_b.collect::<Vec<Node>>().into_iter().rev())
+                let hs_f = xs_f.map(|x| lstm_cell_f.forward(F::dropout(x, dropout_rate, train)));
+                let hs_b = xs_b.map(|x| lstm_cell_b.forward(F::dropout(x, dropout_rate, train)));
+                hs_f.zip(hs_b.collect::<Vec<V>>().into_iter().rev())
                     .map(|(h_f, h_b)| F::concat(&[h_f, h_b], 0))
                     .collect()
             };
@@ -234,43 +349,39 @@ impl BiLSTM {
         xs_next
     }
 
-    pub fn initialized(&self) -> bool {
-        self.lstms[0].0.initialized()
+    pub fn cell_state(&self) -> (&V, &V) {
+        let (lstm_cell_f, lstm_cell_b) = self.lstm_cells.last().unwrap();
+        (lstm_cell_f.cell_state(), lstm_cell_b.cell_state())
     }
 
-    pub fn ready(&self) -> bool {
-        self.lstms[0].0.ready()
-    }
-
-    pub fn get_c(&self) -> (&Node, &Node) {
-        let (lstm_f, lstm_b) = self.lstms.last().unwrap();
-        (lstm_f.get_c(), lstm_b.get_c())
-    }
-
-    pub fn get_h(&self) -> (&Node, &Node) {
-        let (lstm_f, lstm_b) = self.lstms.last().unwrap();
-        (lstm_f.get_h(), lstm_b.get_h())
+    pub fn hidden_state(&self) -> (&V, &V) {
+        let (lstm_cell_f, lstm_cell_b) = self.lstm_cells.last().unwrap();
+        (lstm_cell_f.hidden_state(), lstm_cell_b.hidden_state())
     }
 
     pub fn input_size(&self) -> u32 {
-        self.lstms[0].0.input_size()
+        self.lstm_cells[0].0.input_size()
     }
 
     pub fn output_size(&self) -> u32 {
-        self.lstms[0].0.output_size() * 2
+        self.lstm_cells[0].0.output_size() * 2
+    }
+
+    pub fn default_initializer() -> impl Initializer {
+        LSTMCell::<V>::default_initializer()
     }
 }
 
-impl Model for BiLSTM {
+impl<V: Variable> Model for BiLSTM<V> {
     fn register_parameters(&mut self) {
         let handle: *mut _ = self;
         unsafe {
             let model = &mut *handle;
-            for (i, layer) in self.lstms.iter_mut().enumerate() {
-                layer.0.register_parameters();
-                model.add_submodel(&format!("{}.f_lstm", i), &mut layer.0);
-                layer.1.register_parameters();
-                model.add_submodel(&format!("{}.b_lstm", i), &mut layer.1);
+            for (i, (lstm_cell_f, lstm_cell_b)) in self.lstm_cells.iter_mut().enumerate() {
+                lstm_cell_f.register_parameters();
+                model.add_submodel(&format!("lstm_cells.{}.f", i), lstm_cell_f);
+                lstm_cell_b.register_parameters();
+                model.add_submodel(&format!("lstm_cells.{}.b", i), lstm_cell_b);
             }
         }
     }
@@ -282,37 +393,4 @@ impl Model for BiLSTM {
         hasher.write(format!("{}-{:p}", "BiLSTM", self).as_bytes());
         hasher.finish()
     }
-}
-
-pub fn transpose_sequence(xs: Vec<Node>) -> Vec<Node> {
-    let batch_size = xs[0].shape().batch() as usize;
-    let mut lengths = vec![xs.len(); batch_size];
-    let mut end = batch_size;
-    let xs: Vec<Node> = xs
-        .into_iter()
-        .enumerate()
-        .map(|(i, x)| {
-            let mut s = x.shape();
-            let len = s.batch() as usize;
-            if len < end {
-                for l in lengths[len..end].iter_mut() {
-                    *l = i;
-                }
-                end = len;
-            }
-            let diff = batch_size - len;
-            if diff > 0 {
-                s.update_batch(diff as u32);
-                F::batch::concat(&[x, F::zeros(s)])
-            } else {
-                x
-            }
-        })
-        .collect();
-    let xs_transposed = F::batch::split(F::transpose(F::concat(&xs, 1)), batch_size as u32);
-    xs_transposed
-        .into_iter()
-        .zip(lengths.into_iter())
-        .map(|(x, len)| F::slice(x, 0, 0, len as u32))
-        .collect()
 }
