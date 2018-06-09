@@ -87,11 +87,7 @@ impl CharCNN {
 }
 
 #[inline]
-fn pad<IDs: AsRef<[u32]>>(
-    xs: impl AsRef<[IDs]>,
-    pad_width: usize,
-    pad_id: u32,
-) -> (Vec<Vec<u32>>, Vec<f32>) {
+fn pad<IDs: AsRef<[u32]>>(xs: &[IDs], pad_width: usize, pad_id: u32) -> (Vec<Vec<u32>>, Vec<f32>) {
     let ids_with_len: Vec<(&[u32], usize)> = xs
         .as_ref()
         .iter()

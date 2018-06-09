@@ -291,7 +291,7 @@ impl<T, R: Read<Item = T>, P: Preprocess<T>> Loader<R, P> {
         &self.preprocessor
     }
 
-    pub fn dispose(self) -> P {
+    pub fn into_preprocessor(self) -> P {
         self.preprocessor
     }
 }
