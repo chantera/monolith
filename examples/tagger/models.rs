@@ -1,6 +1,6 @@
 use monolith::models::*;
-use primitiv::node_functions as F;
-use primitiv::Node;
+use primitiv::functions as F;
+use primitiv::{Node, Variable};
 
 const CHAR_EMBED_SIZE: u32 = 10;
 const CHAR_PAD_ID: u32 = 1;
@@ -9,48 +9,47 @@ const NUM_BILSTM_LAYERS: usize = 2;
 const NUM_MLP_LAYERS: usize = 2;
 
 #[derive(Debug, Model, Serialize, Deserialize)]
-pub struct Tagger {
+pub struct Tagger<V: Variable> {
     #[primitiv(submodel)]
     word_embed: Embed,
     #[primitiv(submodel)]
     char_cnn: Option<nlp::CharCNN>,
     #[primitiv(submodel)]
-    bilstm: BiLSTM,
+    bilstm: BiLSTM<V>,
     #[primitiv(submodel)]
     mlp: MLP,
     dropout_rate: f32,
 }
 
-impl Tagger {
-    pub fn new(use_char_cnn: bool, dropout: f32) -> Self {
+impl<V: Variable> Tagger<V> {
+    pub fn new(use_char_cnn: bool, dropout_rate: f32) -> Self {
         Tagger {
             word_embed: Embed::new(),
             char_cnn: if use_char_cnn {
-                Some(nlp::CharCNN::new(CHAR_PAD_ID, dropout))
+                Some(nlp::CharCNN::new(CHAR_PAD_ID, dropout_rate))
             } else {
                 None
             },
-            bilstm: BiLSTM::new(NUM_BILSTM_LAYERS, dropout),
-            mlp: MLP::new(NUM_MLP_LAYERS, Activate::Relu, dropout),
-            dropout_rate: dropout,
+            bilstm: BiLSTM::new(NUM_BILSTM_LAYERS, dropout_rate),
+            mlp: MLP::new(NUM_MLP_LAYERS, Activation::Relu, dropout_rate),
+            dropout_rate,
         }
     }
 
-    pub fn init(
+    pub fn init<I: EmbedInitialize>(
         &mut self,
-        word_embed: impl EmbedInitialize,
-        char_vocab_size: usize,
+        word_embed: I,
+        char_vocab_size: u32,
         char_feature_size: u32,
         lstm_hidden_size: u32,
         mlp_unit: u32,
-        out_size: usize,
+        out_size: u32,
     ) {
-        self.word_embed.init_from(word_embed);
+        self.word_embed.init_by(word_embed);
         let mut bilstm_in_size = self.word_embed.embed_size();
         if let Some(ref mut char_cnn) = self.char_cnn {
             char_cnn.init(
-                char_vocab_size,
-                CHAR_EMBED_SIZE,
+                (char_vocab_size, CHAR_EMBED_SIZE),
                 char_feature_size,
                 CHAR_WINDOW_SIZE,
             );
@@ -61,25 +60,23 @@ impl Tagger {
             .init(&[lstm_hidden_size * 2, mlp_unit], out_size as u32);
     }
 
-    pub fn forward<Chars, WordIDs, CharIDs>(
+    pub fn forward<WordIDs, Chars, CharIDs>(
         &mut self,
-        words: impl AsRef<[WordIDs]>,
-        chars: impl AsRef<[Chars]>,
+        words: &[WordIDs],
+        chars: &[Chars],
         train: bool,
-    ) -> Vec<Node>
+    ) -> Vec<V>
     where
-        Chars: AsRef<[CharIDs]>,
         WordIDs: AsRef<[u32]>,
+        Chars: AsRef<[CharIDs]>,
         CharIDs: AsRef<[u32]>,
     {
         let dropout_rate = self.dropout_rate;
-        let xs_word = self.word_embed.forward(words);
-        let xs = if let Some(ref mut char_cnn) = self.char_cnn {
-            let xs_char = char_cnn.forward(chars, train);
+        let xs_word = self.word_embed.forward_iter(words.iter());
+        let xs: Vec<V> = if let Some(ref mut char_cnn) = self.char_cnn {
             xs_word
-                .into_iter()
-                .zip(xs_char.into_iter())
-                .map(|(x_w, x_c)| {
+                .zip(char_cnn.forward_iter(chars.iter(), train))
+                .map(|(x_w, x_c): (V, V)| {
                     F::concat(
                         [
                             F::dropout(x_w, dropout_rate, train),
@@ -88,37 +85,31 @@ impl Tagger {
                         0,
                     )
                 })
-                .collect::<Vec<_>>()
+                .collect()
         } else {
             xs_word
-                .into_iter()
                 .map(|x_w| F::dropout(x_w, dropout_rate, train))
-                .collect::<Vec<_>>()
+                .collect()
         };
-        let hs = self.bilstm.forward(&xs, None, train);
+        let hs = self.bilstm.forward(xs, None, train);
         let ys = hs.into_iter().map(|h| self.mlp.forward(h, train)).collect();
         ys
     }
 
-    pub fn loss<IDs: AsRef<[u32]>>(&mut self, ys: &[Node], ts: impl AsRef<[IDs]>) -> Node {
+    pub fn loss<IDs: AsRef<[u32]>>(&mut self, ys: &[V], ts: &[IDs]) -> V {
         let batch_size = ys[0].shape().batch();
-        let losses: Vec<Node> = ts
-            .as_ref()
+        let losses: Vec<V> = ts
             .iter()
             .zip(ys)
             .map(|(t, y)| F::batch::sum(F::softmax_cross_entropy_with_ids(y, t.as_ref(), 0)))
             .collect();
-        F::sum_nodes(&losses) / batch_size
+        F::sum_vars(&losses) / batch_size
     }
 
-    pub fn accuracy<IDs: AsRef<[u32]>>(
-        &mut self,
-        ys: &[Node],
-        ts: impl AsRef<[IDs]>,
-    ) -> (u32, u32) {
+    pub fn accuracy<IDs: AsRef<[u32]>>(&mut self, ys: &[V], ts: &[IDs]) -> (u32, u32) {
         let mut correct = 0;
         let mut total = 0;
-        for (y_batch, t_batch) in ys.iter().zip(ts.as_ref()) {
+        for (y_batch, t_batch) in ys.iter().zip(ts) {
             for (y, t) in y_batch.argmax(0).iter().zip(t_batch.as_ref()) {
                 total += 1;
                 if y == t {
@@ -133,15 +124,15 @@ impl Tagger {
 #[derive(Debug)]
 pub struct TaggerBuilder<'a> {
     dropout_rate: f32,
-    word_vocab_size: usize,
+    word_vocab_size: u32,
     word_embed_size: u32,
     word_embed: Option<&'a Vec<Vec<f32>>>,
     use_char_cnn: bool,
-    char_vocab_size: usize,
+    char_vocab_size: u32,
     char_feature_size: u32,
     lstm_hidden_size: u32,
     mlp_unit: u32,
-    out_size: Option<usize>,
+    out_size: Option<u32>,
 }
 
 impl<'a> TaggerBuilder<'a> {
@@ -160,7 +151,7 @@ impl<'a> TaggerBuilder<'a> {
         }
     }
 
-    pub fn build(self) -> Tagger {
+    pub fn build(self) -> Tagger<Node> {
         if self.out_size.is_none() {
             panic!("out_size must be set before builder.build() is called.");
         }
@@ -190,7 +181,7 @@ impl<'a> TaggerBuilder<'a> {
         tagger
     }
 
-    pub fn word(mut self, vocab_size: usize, embed_size: u32) -> Self {
+    pub fn word(mut self, vocab_size: u32, embed_size: u32) -> Self {
         self.word_vocab_size = vocab_size;
         self.word_embed_size = embed_size;
         self
@@ -201,7 +192,7 @@ impl<'a> TaggerBuilder<'a> {
         self
     }
 
-    pub fn char(mut self, vocab_size: usize, feature_size: u32) -> Self {
+    pub fn char(mut self, vocab_size: u32, feature_size: u32) -> Self {
         self.char_vocab_size = vocab_size;
         self.char_feature_size = feature_size;
         self.use_char_cnn = true;
@@ -223,7 +214,7 @@ impl<'a> TaggerBuilder<'a> {
         self
     }
 
-    pub fn out(mut self, size: usize) -> Self {
+    pub fn out(mut self, size: u32) -> Self {
         self.out_size = Some(size);
         self
     }

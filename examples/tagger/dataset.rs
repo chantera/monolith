@@ -1,8 +1,7 @@
 pub use monolith::dataset::Load;
 use monolith::dataset::{conll, StdLoader};
 use monolith::lang::prelude::*;
-use monolith::preprocessing::Preprocess;
-use monolith::preprocessing::Vocab;
+use monolith::preprocessing::{Preprocess, Vocab};
 
 static CHAR_PADDING: &'static str = "<PAD>";
 
@@ -13,19 +12,18 @@ pub type Sample<T> = (Vec<u32>, Vec<Vec<u32>>, Option<T>, Vec<u32>);
 pub struct Preprocessor {
     word_v: Vocab,
     char_v: Vocab,
-    pos_v: Vocab,
+    postag_v: Vocab,
 }
 
 impl Preprocessor {
-    pub fn new(mut word_v: Vocab) -> Self {
-        word_v.disable_serializing_embeddings();
+    pub fn new(word_v: Vocab) -> Self {
         let mut char_v = Vocab::new();
         let pad_id = char_v.add(CHAR_PADDING);
         assert!(pad_id == 1);
         Preprocessor {
-            word_v: word_v,
-            char_v: char_v,
-            pos_v: Vocab::with_default_token("NN"),
+            word_v,
+            char_v,
+            postag_v: Vocab::with_default_token("NN"),
         }
     }
 
@@ -37,18 +35,19 @@ impl Preprocessor {
         &self.char_v
     }
 
-    pub fn pos_vocab(&self) -> &Vocab {
-        &self.pos_v
+    pub fn postag_vocab(&self) -> &Vocab {
+        &self.postag_v
     }
 }
 
-impl<T: Phrasal> Preprocess<T> for Preprocessor {
-    type Output = Sample<T>;
+impl<S: Phrasal> Preprocess<S> for Preprocessor {
+    type Output = Sample<S>;
 
-    fn fit_each(&mut self, x: &T) -> Option<Self::Output> {
-        let mut word_ids = vec![];
-        let mut char_ids = vec![];
-        let mut pos_ids = vec![];
+    fn fit_each(&mut self, x: &S) -> Option<Self::Output> {
+        let len = x.len();
+        let mut word_ids = Vec::with_capacity(len);
+        let mut char_ids = Vec::with_capacity(len);
+        let mut postag_ids = Vec::with_capacity(len);
         let fix_word = self.word_v.has_embed();
         x.iter().skip(1).for_each(|token| {
             let form = token.form();
@@ -60,34 +59,31 @@ impl<T: Phrasal> Preprocess<T> for Preprocessor {
                 self.word_v.add(form.to_lowercase())
             });
             char_ids.push(
-                token
-                    .form()
-                    .chars()
+                form.chars()
                     .map(|c| self.char_v.add(c.to_string()))
                     .collect(),
             );
-            pos_ids.push(self.pos_v.add(token.postag().unwrap().to_string()));
+            postag_ids.push(self.postag_v.add(token.postag().unwrap().to_string()));
         });
-        Some((word_ids, char_ids, None, pos_ids))
+        Some((word_ids, char_ids, None, postag_ids))
     }
 
-    fn transform_each(&self, x: T) -> Self::Output {
-        let mut word_ids = vec![];
-        let mut char_ids = vec![];
-        let mut pos_ids = vec![];
+    fn transform_each(&self, x: S) -> Self::Output {
+        let len = x.len();
+        let mut word_ids = Vec::with_capacity(len);
+        let mut char_ids = Vec::with_capacity(len);
+        let mut postag_ids = Vec::with_capacity(len);
         x.iter().skip(1).for_each(|token| {
             let form = token.form();
             word_ids.push(self.word_v.get(&form.to_lowercase()));
             char_ids.push(
-                token
-                    .form()
-                    .chars()
+                form.chars()
                     .map(|c| self.char_v.get(&c.to_string()))
                     .collect(),
             );
-            pos_ids.push(self.pos_v.get(token.postag().unwrap()));
+            postag_ids.push(self.postag_v.get(token.postag().unwrap()));
         });
-        (word_ids, char_ids, Some(x), pos_ids)
+        (word_ids, char_ids, Some(x), postag_ids)
     }
 }
 

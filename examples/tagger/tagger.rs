@@ -9,7 +9,6 @@ extern crate slog;
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
-use std::result::Result;
 
 use monolith::app::prelude::*;
 use monolith::io::serialize;
@@ -76,20 +75,20 @@ where
             info!(logger, "saving the loader to {} ...", path);
             serialize::write_to(&loader, path, serialize::Format::Json).unwrap();
         }
-        let preprocessor = loader.dispose();
+        let preprocessor = loader.into_preprocessor();
         let word_vocab = preprocessor.word_vocab();
 
         let mut builder = TaggerBuilder::new()
-            .char(preprocessor.char_vocab().size(), 50)
+            .char(preprocessor.char_vocab().size() as u32, 50)
             .lstm(200)
             .mlp(100)
             .dropout(0.5)
-            .out(preprocessor.pos_vocab().size());
+            .out(preprocessor.postag_vocab().size() as u32);
         info!(logger, "builder: {:?}", builder);
         builder = if word_vocab.has_embed() {
             builder.word_embed(word_vocab.embed()?)
         } else {
-            builder.word(word_vocab.size(), 100)
+            builder.word(word_vocab.size() as u32, 100)
         };
         let model = builder.build();
         (train_dataset, valid_dataset, model)
@@ -112,8 +111,8 @@ where
         let model_path = format!("{}-tagger", path.to_str().unwrap());
         let mut c = training::callbacks::Saver::new(&model, &model_path);
         c.set_interval(1);
-        c.save_from(10);
-        c.save_best(true);
+        c.save_from(5);
+        c.save_best(valid_dataset.is_some());
         c
     });
 
@@ -123,7 +122,7 @@ where
             sort_batch!(batch);
             take_cols!((words:0, chars:1, sentences:2, postags:3); batch, batch_size);
             transpose!(words, chars, postags);
-            let ys = model.forward(words, chars, train);
+            let ys = model.forward(&words, &chars, train);
             let loss = model.loss(&ys, &postags);
             let accuracy = model.accuracy(&ys, &postags);
             (loss, accuracy)
@@ -162,25 +161,21 @@ pub fn test<P1: AsRef<Path>, P2: AsRef<Path>>(
         info!(logger, "test file: {}", test_file.as_ref().display());
         loader.fix();
         let test_dataset = loader.load(test_file)?;
-        let preprocessor = loader.dispose();
 
-        let mut model: Tagger = serialize::read_from(arch_file, serialize::Format::Json)?;
+        let mut model: Tagger<Tensor> = serialize::read_from(arch_file, serialize::Format::Json)?;
         model.load(model_file, true)?;
-        (test_dataset, model, preprocessor)
+        (test_dataset, model, loader.into_preprocessor())
     };
-    let pos_vocab = preprocessor.pos_vocab();
+    let postag_vocab = preprocessor.postag_vocab();
 
-    let mut g = Graph::new();
-    Graph::set_default(&mut g);
     let mut overall_loss = 0.0;
     let mut overall_accuracy = training::Accuracy::new(0, 0);
 
     for mut batch in test_dataset.batch(32, false) {
-        g.clear();
         sort_batch!(batch);
         take_cols!((words:0, chars:1, sentences:2, postags:3); batch, 32);
         transpose!(words, chars, postags);
-        let ys = model.forward(words, chars, false);
+        let ys = model.forward(&words, &chars, false);
         let loss = model.loss(&ys, &postags);
         let accuracy = model.accuracy(&ys, &postags);
 
@@ -194,7 +189,7 @@ pub fn test<P1: AsRef<Path>, P2: AsRef<Path>>(
         for (sentence, predicted_postags) in sentences.iter().zip(predicted_postags_batch) {
             let token_iter = sentence.as_ref().unwrap().iter();
             for (token, postag) in token_iter.skip(1).zip(predicted_postags) {
-                print!("{}/{} ", token.form(), pos_vocab.lookup(postag).unwrap());
+                print!("{}/{} ", token.form(), postag_vocab.lookup(postag).unwrap());
             }
             println!("");
         }
