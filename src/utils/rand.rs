@@ -1,9 +1,9 @@
 use std::cell::UnsafeCell;
 use std::rc::Rc;
 
-pub use rand::Rng;
-use rand::{RngCore, CryptoRng, SeedableRng, EntropyRng, IsaacRng, ReseedingRng, Error};
 use rand::prng::hc128::Hc128Core;
+pub use rand::Rng;
+use rand::{CryptoRng, EntropyRng, Error, IsaacRng, ReseedingRng, RngCore, SeedableRng};
 
 use utils;
 
@@ -56,7 +56,9 @@ thread_local!(
 );
 
 pub fn thread_rng() -> ThreadRng {
-    ThreadRng { rng: THREAD_RNG_KEY.with(|t| t.clone()) }
+    ThreadRng {
+        rng: THREAD_RNG_KEY.with(|t| t.clone()),
+    }
 }
 
 impl RngCore for ThreadRng {

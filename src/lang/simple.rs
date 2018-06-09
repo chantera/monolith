@@ -75,11 +75,10 @@ pub struct Sentence<T: Tokenized> {
 impl<'a> Sentence<Token<'a>> {
     pub fn new<S: Into<String>>(raw: S) -> Self {
         let raw = raw.into();
-        let tokens = raw.split(" ")
+        let tokens = raw
+            .split(" ")
             .enumerate()
-            .map(|(i, word)| {
-                Token::new(i, word.to_string(), None, None, None, None)
-            })
+            .map(|(i, word)| Token::new(i, word.to_string(), None, None, None, None))
             .collect::<Vec<Token>>();
         Sentence {
             raw: raw,

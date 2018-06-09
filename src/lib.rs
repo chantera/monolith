@@ -6,27 +6,17 @@ extern crate rand;
 extern crate chan;
 #[cfg(feature = "app")]
 extern crate chan_signal;
-#[cfg(feature = "app")]
-extern crate uuid;
-#[cfg(feature = "app")]
-extern crate structopt;
-#[cfg(feature = "app")]
-#[macro_use]
-extern crate structopt_derive;
 #[cfg(feature = "logging")]
 extern crate chrono;
-#[cfg(feature = "logging")]
-#[macro_use]
-extern crate slog;
-#[cfg(feature = "logging")]
-extern crate slog_async;
-#[cfg(feature = "logging")]
-extern crate slog_term;
+#[cfg(feature = "serialize")]
+extern crate csv;
+#[cfg(feature = "training")]
+extern crate pbr;
 #[cfg(feature = "models")]
 #[macro_use]
 extern crate primitiv;
 #[cfg(feature = "serialize")]
-extern crate csv;
+extern crate rmp_serde;
 #[cfg(feature = "serialize")]
 extern crate serde;
 #[cfg(feature = "serialize")]
@@ -34,10 +24,20 @@ extern crate serde;
 extern crate serde_derive;
 #[cfg(feature = "serialize")]
 extern crate serde_json;
-#[cfg(feature = "serialize")]
-extern crate rmp_serde;
-#[cfg(feature = "training")]
-extern crate pbr;
+#[cfg(feature = "logging")]
+#[macro_use]
+extern crate slog;
+#[cfg(feature = "logging")]
+extern crate slog_async;
+#[cfg(feature = "logging")]
+extern crate slog_term;
+#[cfg(feature = "app")]
+extern crate structopt;
+#[cfg(feature = "app")]
+#[macro_use]
+extern crate structopt_derive;
+#[cfg(feature = "app")]
+extern crate uuid;
 
 #[cfg(feature = "app")]
 #[macro_use]

@@ -139,9 +139,9 @@ pub fn read_upto<R: io::BufRead, T: FromLine>(
         match reader.read_line(&mut line) {
             Ok(0) => break,
             Ok(_) => {
-                buf.push(try!(T::from_line(&line).map_err(|e| {
-                    io::Error::new(io::ErrorKind::InvalidData, e)
-                })));
+                buf.push(try!(
+                    T::from_line(&line).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+                ));
                 count += 1;
             }
             Err(ref e) if e.kind() == io::ErrorKind::Interrupted => {}

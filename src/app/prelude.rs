@@ -1,4 +1,4 @@
-pub use super::{App, Config, CommonArgs, Context, FromArgs};
+pub use super::{App, CommonArgs, Config, Context, FromArgs};
 
 mod reexports {
     #[doc(hidden)]
@@ -8,9 +8,9 @@ mod reexports {
         pub use structopt::*;
     }
     #[doc(hidden)]
-    pub use structopt::StructOpt;
-    #[doc(hidden)]
     pub use structopt::clap::AppSettings;
+    #[doc(hidden)]
+    pub use structopt::StructOpt;
 }
 
 pub use self::reexports::*;

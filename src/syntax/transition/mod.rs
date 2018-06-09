@@ -1,12 +1,12 @@
 use std::error;
 use std::fmt;
 
-pub use self::state::*;
 pub use self::arc_standard::*;
+pub use self::state::*;
 
+mod arc_standard;
 pub mod prelude;
 mod state;
-mod arc_standard;
 
 pub type Index = u32;
 pub type Action = u32;

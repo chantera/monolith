@@ -7,9 +7,9 @@ use utils;
 pub use self::app::*;
 pub use self::main::*;
 
-pub mod prelude;
 mod app;
 mod main;
+pub mod prelude;
 
 pub static APP_DIR: &'static str = "~/.monolith";
 

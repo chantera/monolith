@@ -32,12 +32,7 @@ impl fmt::Display for Uname {
         write!(
             f,
             "{} {} {} {} {} {}",
-            self.sysname,
-            self.nodename,
-            self.release,
-            self.version,
-            self.machine,
-            self.domainname
+            self.sysname, self.nodename, self.release, self.version, self.machine, self.domainname
         )
     }
 }

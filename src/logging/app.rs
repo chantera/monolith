@@ -1,6 +1,6 @@
 use std::fs;
-use std::path::PathBuf;
 use std::io::Write;
+use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 
@@ -9,7 +9,7 @@ pub use slog::FilterLevel as Level;
 use slog::{Discard, Logger, Record};
 use uuid::{Uuid, NAMESPACE_OID as UUID_NAMESPACE_OID};
 
-use super::{Config, Error, create_logger_with_kv_and_time};
+use super::{create_logger_with_kv_and_time, Config, Error};
 
 #[derive(Debug)]
 pub struct AppLogger {
@@ -23,8 +23,8 @@ pub struct AppLogger {
 impl AppLogger {
     pub fn new<C: Into<Config>>(config: C) -> Result<Self, Error> {
         let accesstime = Local::now();
-        let accessid = Uuid::new_v5(&UUID_NAMESPACE_OID, &accesstime.to_string()).to_string()[..8]
-            .to_string();
+        let accessid =
+            Uuid::new_v5(&UUID_NAMESPACE_OID, &accesstime.to_string()).to_string()[..8].to_string();
         let c = config.into();
 
         let (inner, filepath) = create_logger_with_kv_and_time(
@@ -66,11 +66,10 @@ impl AppLogger {
         self.inner = Logger::root(Discard, o!());
         if let Some(ref path) = self.filepath {
             thread::sleep(Duration::from_millis(1));
-            let result = fs::OpenOptions::new().append(true).open(path).map(
-                |mut file| {
-                    write!(file, "\n").map(|_| ()).and_then(|()| file.flush())
-                },
-            );
+            let result = fs::OpenOptions::new()
+                .append(true)
+                .open(path)
+                .map(|mut file| write!(file, "\n").map(|_| ()).and_then(|()| file.flush()));
             match result {
                 Ok(_) => {}
                 Err(e) => eprintln!("unable to write a newline: {}", e),

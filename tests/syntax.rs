@@ -4,10 +4,10 @@ mod test_utils;
 
 #[cfg(feature = "syntax")]
 mod tests {
-    use monolith::syntax::transition;
-    use monolith::syntax::transition::prelude::*;
     use monolith::lang::prelude::*;
     use monolith::preprocessing::Vocab;
+    use monolith::syntax::transition;
+    use monolith::syntax::transition::prelude::*;
 
     use super::test_utils;
 
@@ -46,13 +46,19 @@ mod tests {
                 actions.len(),
                 capacity
             );
-            let heads_match = state.heads().iter().zip(&gold_heads).skip(1).all(
-                |(&head, &gold_head)| head == Some(gold_head),
-            );
+            let heads_match = state
+                .heads()
+                .iter()
+                .zip(&gold_heads)
+                .skip(1)
+                .all(|(&head, &gold_head)| head == Some(gold_head));
             assert!(heads_match);
-            let labels_match = state.labels().iter().zip(&gold_labels).skip(1).all(
-                |(&label, &gold_label)| label == Some(gold_label),
-            );
+            let labels_match = state
+                .labels()
+                .iter()
+                .zip(&gold_labels)
+                .skip(1)
+                .all(|(&label, &gold_label)| label == Some(gold_label));
             assert!(labels_match);
 
             let result =

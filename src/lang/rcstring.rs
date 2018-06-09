@@ -92,9 +92,9 @@ impl Borrow<str> for RcString {
 
 #[cfg(feature = "serialize")]
 mod serialize {
-    use serde::{Deserialize, Serialize};
     use serde::de::Deserializer;
     use serde::ser::Serializer;
+    use serde::{Deserialize, Serialize};
 
     use super::RcString;
 

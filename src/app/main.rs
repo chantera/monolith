@@ -11,7 +11,7 @@ pub trait FromArgs {
 
 #[macro_export]
 macro_rules! main {
-    (|$args:ident: $sopt:ty, $ctx:ident: Context| $body:block; default) => {
+    (| $args:ident : $sopt:ty, $ctx:ident : Context | $body:block; default) => {
         fn main() {
             let $args = <$sopt>::from_args();
             let config = Config::default();
@@ -20,7 +20,7 @@ macro_rules! main {
                 .run();
         }
     };
-    (|$args:ident: $sopt:ty, $ctx:ident: Context| $body:block; @$field:ident) => {
+    (| $args:ident : $sopt:ty, $ctx:ident : Context | $body:block; @ $field:ident) => {
         fn main() {
             let $args = <$sopt>::from_args();
             App::from_config($args.$field.clone())
@@ -28,11 +28,11 @@ macro_rules! main {
                 .run();
         }
     };
-    (|$args:ident: $sopt:ty, $ctx:ident: Context| $body:block) => {
+    (| $args:ident : $sopt:ty, $ctx:ident : Context | $body:block) => {
         main!(|$args: $sopt, $ctx: Context| $body; @common);
     };
-    (|$args:ident: $sopt:ty, $ctx:ident: Context| $body:expr) => {
-        main!(|$args: $sopt, $ctx: Context| { $body });
+    (| $args:ident : $sopt:ty, $ctx:ident : Context | $body:expr) => {
+        main!(|$args: $sopt, $ctx: Context| $body);
     };
 }
 

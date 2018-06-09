@@ -5,9 +5,9 @@ extern crate tempfile;
 
 use std::io as std_io;
 
-use monolith::io::prelude::*;
 #[cfg(feature = "app")]
 use monolith::io::cache::Cache;
+use monolith::io::prelude::*;
 #[cfg(feature = "serialize")]
 use monolith::io::serialize;
 
@@ -44,8 +44,8 @@ fn test_serialize() {
     }
     {
         let bytes = serialize::serialize(&person1, serialize::Format::JsonPretty).unwrap();
-        let person1_de: Person = serialize::deserialize(&bytes, serialize::Format::JsonPretty)
-            .unwrap();
+        let person1_de: Person =
+            serialize::deserialize(&bytes, serialize::Format::JsonPretty).unwrap();
         assert_eq!(
             String::from_utf8(bytes).unwrap(),
             "{\n  \"name\": \"John\",\n  \"age\": 26\n}"
@@ -54,8 +54,8 @@ fn test_serialize() {
     }
     {
         let bytes = serialize::serialize(&person1, serialize::Format::Msgpack).unwrap();
-        let person1_de: Person = serialize::deserialize(&bytes, serialize::Format::Msgpack)
-            .unwrap();
+        let person1_de: Person =
+            serialize::deserialize(&bytes, serialize::Format::Msgpack).unwrap();
         assert_eq!(bytes, [146, 164, 74, 111, 104, 110, 26]);
         assert_eq!(person1, person1_de);
     }

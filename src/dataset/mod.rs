@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use io::{BufFileReader, FileOpen, Read};
 use preprocessing::Preprocess;
-use utils::rand::{Rng, thread_rng};
+use utils::rand::{thread_rng, Rng};
 
 #[cfg(feature = "dataset-conll")]
 pub mod conll;
@@ -71,7 +71,9 @@ impl<T> Dataset<T> {
     }
 
     pub fn with_capacity(capacity: usize) -> Self {
-        Dataset { items: Vec::with_capacity(capacity) }
+        Dataset {
+            items: Vec::with_capacity(capacity),
+        }
     }
 
     pub fn batch<'a>(&'a self, size: usize, shuffle: bool) -> Batches<'a, T> {

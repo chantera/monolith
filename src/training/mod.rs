@@ -113,9 +113,8 @@ where
         n_epochs: u32,
         batch_size: usize,
     ) {
-        self.callbacks.sort_by(|cb1, cb2| {
-            (-(cb1.0 as i32), cb1.1).cmp(&(-(cb2.0 as i32), cb2.1))
-        });
+        self.callbacks
+            .sort_by(|cb1, cb2| (-(cb1.0 as i32), cb1.1).cmp(&(-(cb2.0 as i32), cb2.1)));
 
         let mut g = Graph::new();
         Graph::set_default(&mut g);
@@ -213,9 +212,8 @@ where
         let name = name.into();
         self.remove_callback(&name);
         let index = self.callbacks.len();
-        self.callbacks.push(
-            (priority, index, name, Box::new(callback)),
-        );
+        self.callbacks
+            .push((priority, index, name, Box::new(callback)));
     }
 
     pub fn has_callback(&self, name: &str) -> bool {
@@ -238,54 +236,54 @@ where
     fn notify(&mut self, event: Event, info: &TrainingInfo<U>) {
         match event {
             Event::TrainBegin => {
-                self.callbacks.iter_mut().for_each(
-                    |cb| cb.3.on_train_begin(info),
-                );
+                self.callbacks
+                    .iter_mut()
+                    .for_each(|cb| cb.3.on_train_begin(info));
             }
             Event::TrainEnd => {
-                self.callbacks.iter_mut().for_each(
-                    |cb| cb.3.on_train_end(info),
-                );
+                self.callbacks
+                    .iter_mut()
+                    .for_each(|cb| cb.3.on_train_end(info));
             }
             Event::EpochBegin => {
-                self.callbacks.iter_mut().for_each(
-                    |cb| cb.3.on_epoch_begin(info),
-                );
+                self.callbacks
+                    .iter_mut()
+                    .for_each(|cb| cb.3.on_epoch_begin(info));
             }
             Event::EpochEnd => {
-                self.callbacks.iter_mut().for_each(
-                    |cb| cb.3.on_epoch_end(info),
-                );
+                self.callbacks
+                    .iter_mut()
+                    .for_each(|cb| cb.3.on_epoch_end(info));
             }
             Event::EpochTrainBegin => {
-                self.callbacks.iter_mut().for_each(|cb| {
-                    cb.3.on_epoch_train_begin(info)
-                });
+                self.callbacks
+                    .iter_mut()
+                    .for_each(|cb| cb.3.on_epoch_train_begin(info));
             }
             Event::EpochTrainEnd => {
-                self.callbacks.iter_mut().for_each(
-                    |cb| cb.3.on_epoch_train_end(info),
-                );
+                self.callbacks
+                    .iter_mut()
+                    .for_each(|cb| cb.3.on_epoch_train_end(info));
             }
             Event::EpochValidateBegin => {
-                self.callbacks.iter_mut().for_each(|cb| {
-                    cb.3.on_epoch_validate_begin(info)
-                });
+                self.callbacks
+                    .iter_mut()
+                    .for_each(|cb| cb.3.on_epoch_validate_begin(info));
             }
             Event::EpochValidateEnd => {
-                self.callbacks.iter_mut().for_each(|cb| {
-                    cb.3.on_epoch_validate_end(info)
-                });
+                self.callbacks
+                    .iter_mut()
+                    .for_each(|cb| cb.3.on_epoch_validate_end(info));
             }
             Event::BatchBegin => {
-                self.callbacks.iter_mut().for_each(
-                    |cb| cb.3.on_batch_begin(info),
-                );
+                self.callbacks
+                    .iter_mut()
+                    .for_each(|cb| cb.3.on_batch_begin(info));
             }
             Event::BatchEnd => {
-                self.callbacks.iter_mut().for_each(
-                    |cb| cb.3.on_batch_end(info),
-                );
+                self.callbacks
+                    .iter_mut()
+                    .for_each(|cb| cb.3.on_batch_end(info));
             }
         }
     }

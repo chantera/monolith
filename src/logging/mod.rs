@@ -1,14 +1,16 @@
 use std::error;
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
-use std::path::{Path, PathBuf, MAIN_SEPARATOR};
 use std::io as std_io;
 use std::io::Write;
+use std::path::{Path, PathBuf, MAIN_SEPARATOR};
 
 use chrono::prelude::*;
 pub use slog::FilterLevel as Level;
-use slog::{Discard, Drain, Duplicate, Fuse, LevelFilter, Level as LogLevel, Logger, OwnedKV,
-           SendSyncRefUnwindSafeKV};
+use slog::{
+    Discard, Drain, Duplicate, Fuse, Level as LogLevel, LevelFilter, Logger, OwnedKV,
+    SendSyncRefUnwindSafeKV,
+};
 use slog_async::Async;
 use slog_term::{CompactFormat, Decorator, FullFormat, PlainDecorator, TermDecorator};
 
@@ -147,18 +149,14 @@ impl LoggerBuilder {
         T: SendSyncRefUnwindSafeKV + 'static,
     {
         match other.build_drain() {
-            Some(d2) => {
-                match self.build_drain() {
-                    Some(d1) => Logger::root(Duplicate::new(d1, d2).fuse(), values),
-                    None => Logger::root(d2.fuse(), values),
-                }
-            }
-            None => {
-                match self.build_drain() {
-                    Some(d1) => Logger::root(d1.fuse(), values),
-                    None => Logger::root(Discard, values),
-                }
-            }
+            Some(d2) => match self.build_drain() {
+                Some(d1) => Logger::root(Duplicate::new(d1, d2).fuse(), values),
+                None => Logger::root(d2.fuse(), values),
+            },
+            None => match self.build_drain() {
+                Some(d1) => Logger::root(d1.fuse(), values),
+                None => Logger::root(Discard, values),
+            },
         }
     }
 }
@@ -327,10 +325,7 @@ where
     } else {
         return Err(std_io::Error::new(
             std_io::ErrorKind::NotFound,
-            format!(
-                "file `{}` is not a directory",
-                dir.to_str().unwrap()
-            ),
+            format!("file `{}` is not a directory", dir.to_str().unwrap()),
         ));
     }
 
@@ -342,11 +337,10 @@ where
         ));
     }
 
-    let stem = filename.file_stem().and_then(|s| s.to_str()).ok_or_else(
-        || {
-            std_io::Error::new(std_io::ErrorKind::InvalidInput, "invalid filename")
-        },
-    )?;
+    let stem = filename
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| std_io::Error::new(std_io::ErrorKind::InvalidInput, "invalid filename"))?;
     let stem = format!(
         "{}{}{}",
         prefix.unwrap_or(""),
@@ -367,7 +361,6 @@ where
             }
             number += 1;
         }
-
     } else {
         Ok(dir.join(format!("{}{}", stem, ext)))
     }

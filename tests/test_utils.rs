@@ -5,8 +5,8 @@ pub mod mock {
     use std::io::Cursor;
 
     use monolith::dataset::conll;
-    use monolith::lang::Sentence;
     use monolith::io::prelude::Read;
+    use monolith::lang::Sentence;
 
     #[allow(dead_code)]
     pub fn provide_conll_tokens() -> Vec<Sentence<conll::Token<'static>>> {

@@ -1,5 +1,5 @@
-use lang::{Phrasal, Tokenized};
 pub use self::text::*;
+use lang::{Phrasal, Tokenized};
 
 mod text;
 
@@ -7,7 +7,9 @@ pub trait Preprocess<T> {
     type Output;
 
     fn fit<I: Iterator<Item = T>>(&mut self, xs: I) {
-        xs.for_each(|x| { self.fit_each(&x); });
+        xs.for_each(|x| {
+            self.fit_each(&x);
+        });
     }
 
     #[allow(unused_variables)]
@@ -49,7 +51,8 @@ impl<T: Phrasal> Preprocess<T> for TextPreprocessor {
     type Output = Vec<u32>;
 
     fn fit_each(&mut self, x: &T) -> Option<Self::Output> {
-        let word_ids = x.iter()
+        let word_ids = x
+            .iter()
             .map(|token| self.vocab.add(token.form().to_lowercase()))
             .collect();
         Some(word_ids)

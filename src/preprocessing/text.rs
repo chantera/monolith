@@ -165,12 +165,12 @@ mod serialize {
     #[cfg(feature = "app")]
     use io::cache::{self, FromCache, IntoCache};
     use io::embedding as embed_io;
-    use serde::ser::{Serialize, Serializer, SerializeStruct};
     use rand::distributions::{self, Distribution};
+    use serde::ser::{Serialize, SerializeStruct, Serializer};
     #[cfg(feature = "app")]
     use uuid::{Uuid, NAMESPACE_OID as UUID_NAMESPACE_OID};
 
-    use super::{Vocab, Error};
+    use super::{Error, Vocab};
     use utils::rand::thread_rng;
 
     impl Vocab {
@@ -204,9 +204,9 @@ mod serialize {
             let mut embeddings = Vec::with_capacity(capacity);
 
             let default_token = default_token.into();
-            let default = entries.iter().position(
-                |ref entry| entry.0 == default_token,
-            );
+            let default = entries
+                .iter()
+                .position(|ref entry| entry.0 == default_token);
             match default {
                 Some(index) => {
                     let entry = entries.remove(index);

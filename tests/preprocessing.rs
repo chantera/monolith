@@ -5,7 +5,8 @@ use monolith::io::cache::{Cache, FromCache, IntoCache};
 use monolith::lang::{Sentence, Token};
 use monolith::preprocessing::{Preprocess, TextPreprocessor, Vocab};
 
-static SENTENCE1: &'static str = "Pierre Vinken , 61 years old , will join the board as a nonexecutive director Nov. 29 .";
+static SENTENCE1: &'static str =
+    "Pierre Vinken , 61 years old , will join the board as a nonexecutive director Nov. 29 .";
 static SENTENCE2: &'static str = "No , it was n't Black Monday .";
 static SENTENCE3: &'static str = "John loves Mary .";
 

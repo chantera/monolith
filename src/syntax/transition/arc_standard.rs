@@ -1,4 +1,4 @@
-use super::{Index, Action, TransitionState, TransitionMutableState, TransitionSystem, Error};
+use super::{Action, Error, Index, TransitionMutableState, TransitionState, TransitionSystem};
 
 #[derive(Debug)]
 pub enum ArcStandardActionType {
@@ -162,16 +162,12 @@ impl TransitionSystem for ArcStandard {
         if state.stack_size() >= 2 {
             let s0 = state.stack_top().unwrap();
             let s1 = state.stack(1).unwrap();
-            if gold_heads[s0 as usize] == s1 &&
-                ArcStandard::done_children_right_of(state, gold_heads, s0)
+            if gold_heads[s0 as usize] == s1
+                && ArcStandard::done_children_right_of(state, gold_heads, s0)
             {
-                Some(
-                    ArcStandardActionType::RightArc(gold_labels[s0 as usize]).into_action(),
-                )
+                Some(ArcStandardActionType::RightArc(gold_labels[s0 as usize]).into_action())
             } else if gold_heads[s1 as usize] == s0 {
-                Some(
-                    ArcStandardActionType::LeftArc(gold_labels[s1 as usize]).into_action(),
-                )
+                Some(ArcStandardActionType::LeftArc(gold_labels[s1 as usize]).into_action())
             } else {
                 Some(ArcStandardActionType::Shift.into_action())
             }

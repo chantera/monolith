@@ -1,1 +1,1 @@
-pub use super::{Index, Action, TransitionState, TransitionMutableState, TransitionSystem, Error};
+pub use super::{Action, Error, Index, TransitionMutableState, TransitionState, TransitionSystem};

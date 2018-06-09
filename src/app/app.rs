@@ -62,12 +62,12 @@ pub struct Context {
     pub accesstime: DateTime<Local>,
 }
 
-thread_local!(
-    static CONTEXT: Rc<Cell<Option<*const Context>>> = Rc::new(Cell::new(None));
-);
+thread_local!(static CONTEXT: Rc<Cell<Option<*const Context>>> = Rc::new(Cell::new(None)););
 
 fn set_context(context: &Context) {
-    CONTEXT.with(|c| { c.set(Some(context)); });
+    CONTEXT.with(|c| {
+        c.set(Some(context));
+    });
 }
 
 pub fn get_context<'a>() -> Option<&'a Context> {

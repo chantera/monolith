@@ -88,9 +88,9 @@ impl<'a> ConllTokenized for Token<'a> {
     }
 
     fn feats(&self) -> Option<Vec<&str>> {
-        self.feats.as_ref().map(|x| {
-            x.iter().map(|x| x.deref()).collect::<Vec<&str>>()
-        })
+        self.feats
+            .as_ref()
+            .map(|x| x.iter().map(|x| x.deref()).collect::<Vec<&str>>())
     }
 
     fn phead(&self) -> Option<usize> {
@@ -129,9 +129,9 @@ static CONLL_EMPTY_FIELD: &'static str = "_";
 
 #[inline]
 fn parse_conll_required_usize_field(field: &str) -> Result<usize, std_io::Error> {
-    field.parse::<usize>().map_err(|e| {
-        std_io::Error::new(std_io::ErrorKind::InvalidData, e)
-    })
+    field
+        .parse::<usize>()
+        .map_err(|e| std_io::Error::new(std_io::ErrorKind::InvalidData, e))
 }
 
 #[inline]
@@ -175,9 +175,7 @@ impl<'a> mod_io::FromLine for Token<'a> {
     fn from_line(line: &str) -> Result<Token<'a>, Self::Err> {
         let mut cols = line.split(CONLL_FIELD_DELIMITER);
         let token = Token::new(
-            require(cols.next()).and_then(
-                parse_conll_required_usize_field,
-            )?,
+            require(cols.next()).and_then(parse_conll_required_usize_field)?,
             require(cols.next())
                 .and_then(parse_conll_required_str_field)
                 .map(|s| s.to_string())?,
@@ -197,15 +195,11 @@ impl<'a> mod_io::FromLine for Token<'a> {
                         .map(|s| s.to_string())
                         .collect::<Vec<_>>()
                 }),
-            require(cols.next()).and_then(
-                parse_conll_optional_usize_field,
-            )?,
+            require(cols.next()).and_then(parse_conll_optional_usize_field)?,
             require(cols.next())
                 .and_then(parse_conll_optional_str_field)?
                 .map(|s| s.to_string()),
-            require(cols.next()).and_then(
-                parse_conll_optional_usize_field,
-            )?,
+            require(cols.next()).and_then(parse_conll_optional_usize_field)?,
             require(cols.next())
                 .and_then(parse_conll_optional_str_field)?
                 .map(|s| s.to_string()),
@@ -250,9 +244,10 @@ where
                 } else if line_trimmed.starts_with("#") {
                     // skip
                 } else {
-                    tokens.push(try!(T::from_line(&line_trimmed).map_err(|e| {
-                        std_io::Error::new(std_io::ErrorKind::InvalidData, e)
-                    })));
+                    tokens
+                        .push(try!(T::from_line(&line_trimmed).map_err(|e| {
+                            std_io::Error::new(std_io::ErrorKind::InvalidData, e)
+                        })));
                 }
             }
             Err(ref e) if e.kind() == std_io::ErrorKind::Interrupted => {}

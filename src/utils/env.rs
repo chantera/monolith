@@ -47,11 +47,9 @@ where
 {
     match env::var(key) {
         Ok(s) => s.parse::<T>().map_err(|e| VarError::Parse(e.into())),
-        Err(e) => {
-            match e {
-                env::VarError::NotPresent => Err(VarError::NotPresent),
-                env::VarError::NotUnicode(s) => Err(VarError::NotUnicode(s)),
-            }
-        }
+        Err(e) => match e {
+            env::VarError::NotPresent => Err(VarError::NotPresent),
+            env::VarError::NotUnicode(s) => Err(VarError::NotUnicode(s)),
+        },
     }
 }

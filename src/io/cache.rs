@@ -2,8 +2,8 @@ use std::fs;
 use std::io as std_io;
 use std::path::{Path, PathBuf};
 
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 
 use app;
 use io::serialize;
@@ -41,10 +41,7 @@ impl Cache {
         } else if !path.is_dir() {
             return Err(std_io::Error::new(
                 std_io::ErrorKind::Other,
-                format!(
-                    "path `{}` is not a directory",
-                    path.to_str().unwrap()
-                ),
+                format!("path `{}` is not a directory", path.to_str().unwrap()),
             ));
         }
         Ok(Cache {
@@ -122,5 +119,5 @@ macro_rules! impl_cache {
                 cache::write_cache(&prefix, name, self)
             }
         }
-    }
+    };
 }

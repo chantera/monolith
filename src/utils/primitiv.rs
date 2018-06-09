@@ -1,4 +1,4 @@
-use primitiv::{Device, devices};
+use primitiv::{devices, Device};
 use utils::rand::env_seed;
 
 #[cfg(all(feature = "primitiv-cuda", feature = "primitiv-eigen"))]

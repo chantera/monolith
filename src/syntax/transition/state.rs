@@ -1,6 +1,6 @@
 use std::u32::MAX as U32_MAX;
 
-use super::{Index, Action, TransitionState, TransitionMutableState, TransitionSystem, Error};
+use super::{Action, Error, Index, TransitionMutableState, TransitionState, TransitionSystem};
 
 #[inline]
 fn default_capacity(num_tokens: usize) -> usize {
