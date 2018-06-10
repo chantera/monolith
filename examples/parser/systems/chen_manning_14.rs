@@ -191,40 +191,97 @@ impl ChenManning14Model {
     }
 
     pub fn forward<V: Variable, FSeq: AsRef<[Feature]>>(&mut self, xs: &[FSeq], train: bool) -> V {
-        let num_samples = xs.iter().fold(0, |sum, x| sum + x.as_ref().len());
-        let mut word_ids: Vec<&[u32]> = Vec::with_capacity(num_samples);
-        let mut postag_ids: Vec<&[u32]> = Vec::with_capacity(num_samples);
-        let mut label_ids: Vec<&[u32]> = Vec::with_capacity(num_samples);
-        for features in xs.as_ref() {
-            for feature in features.as_ref() {
-                word_ids.push(&feature.words);
-                postag_ids.push(&feature.postags);
-                label_ids.push(&feature.labels);
-            }
-        }
-        let xs_words = self.word_embed.forward_iter(word_ids.iter());
-        let xs_postags = self.postag_embed.forward_iter(postag_ids.iter());
-        let xs_labels = self.label_embed.forward_iter(label_ids.iter());
-        let xs_features: Vec<V> = xs_words
-            .zip(xs_postags)
-            .zip(xs_labels)
-            .map(|((x_w, x_p), x_l): ((V, V), V)| {
-                let x = F::batch::concat([
-                    F::dropout(x_w, self.dropout_rate, train),
-                    F::dropout(x_p, self.dropout_rate, train),
-                    F::dropout(x_l, self.dropout_rate, train),
-                ]);
-                let x = F::concat(F::batch::split(x, NUM_CM14_FEATURES as u32), 0);
-                x
-            })
-            .collect();
-        let xs_features = F::batch::concat(xs_features);
+        let xs: V = self.lookup_features(xs, train);
         let w1: V = F::parameter(&mut self.pw1);
         let b1: V = F::parameter(&mut self.pb1);
         let w2: V = F::parameter(&mut self.pw2);
-        let hs: V = F::pown(F::matmul(w1, xs_features) + b1, 3);
-        let ys: V = F::matmul(w2, F::dropout(hs, self.dropout_rate, train));
+        let hs = F::pown(F::matmul(w1, xs) + b1, 3);
+        let ys = F::matmul(w2, F::dropout(hs, self.dropout_rate, train));
         ys
+    }
+
+    /// Computes feature representations
+    ///
+    /// This flattens the slice of features and returns a varible whose shape is ([dim], n) where
+    /// n is the number of `Feature` objects.
+    ///
+    /// # Implementation notes
+    ///
+    /// This first gathers ids for lookup without duplication, and then maps the ids to vectors and
+    /// retrieves representation.
+    fn lookup_features<V: Variable, FSeq: AsRef<[Feature]>>(
+        &mut self,
+        xs: &[FSeq],
+        train: bool,
+    ) -> V {
+        let num_samples = xs.iter().fold(0, |sum, x| sum + x.as_ref().len());
+        let mut word_ids: Vec<u32> = Vec::with_capacity(1024);
+        let mut postag_ids: Vec<u32> = Vec::with_capacity(64);
+        let mut label_ids: Vec<u32> = Vec::with_capacity(64);
+        let mut word_indices: Vec<usize> = Vec::with_capacity(num_samples * NUM_CM14_WORD_FEATURES);
+        let mut postag_indices: Vec<usize> =
+            Vec::with_capacity(num_samples * NUM_CM14_POSTAG_FEATURES);
+        let mut label_indices: Vec<usize> =
+            Vec::with_capacity(num_samples * NUM_CM14_LABEL_FEATURES);
+        for features in xs {
+            for feature in features.as_ref() {
+                word_indices.extend(feature.words.iter().map(|id| or_insert(&mut word_ids, *id)));
+                postag_indices.extend(
+                    feature
+                        .postags
+                        .iter()
+                        .map(|id| or_insert(&mut postag_ids, *id)),
+                );
+                label_indices.extend(
+                    feature
+                        .labels
+                        .iter()
+                        .map(|id| or_insert(&mut label_ids, *id)),
+                );
+            }
+        }
+        let xs_words = F::batch::split(
+            F::dropout(
+                self.word_embed.lookup::<V>(&word_ids),
+                self.dropout_rate,
+                train,
+            ),
+            word_ids.len() as u32,
+        );
+        let xs_postags = F::batch::split(
+            F::dropout(
+                self.postag_embed.lookup::<V>(&postag_ids),
+                self.dropout_rate,
+                train,
+            ),
+            postag_ids.len() as u32,
+        );
+        let xs_labels = F::batch::split(
+            F::dropout(
+                self.label_embed.lookup::<V>(&label_ids),
+                self.dropout_rate,
+                train,
+            ),
+            label_ids.len() as u32,
+        );
+        let xs_features: Vec<V> = (0..num_samples)
+            .map(|i| {
+                let w_iter = word_indices
+                    [(i * NUM_CM14_WORD_FEATURES)..((i + 1) * NUM_CM14_WORD_FEATURES)]
+                    .iter()
+                    .map(|idx| &xs_words[*idx]);
+                let p_iter = postag_indices
+                    [(i * NUM_CM14_POSTAG_FEATURES)..((i + 1) * NUM_CM14_POSTAG_FEATURES)]
+                    .iter()
+                    .map(|idx| &xs_postags[*idx]);
+                let l_iter = label_indices
+                    [(i * NUM_CM14_LABEL_FEATURES)..((i + 1) * NUM_CM14_LABEL_FEATURES)]
+                    .iter()
+                    .map(|idx| &xs_labels[*idx]);
+                F::concat(w_iter.chain(p_iter).chain(l_iter).collect::<Vec<&V>>(), 0)
+            })
+            .collect();
+        F::batch::concat(xs_features)
     }
 
     pub fn loss<V: Variable, Actions: AsRef<[u32]>>(&mut self, ys: &V, ts: &[Actions]) -> V {
@@ -318,6 +375,15 @@ impl ChenManning14Model {
     }
 }
 
+#[inline]
+fn or_insert<T: PartialEq>(vec: &mut Vec<T>, value: T) -> usize {
+    vec.iter().position(|v| *v == value).unwrap_or_else(|| {
+        let index = vec.len();
+        vec.push(value);
+        index
+    })
+}
+
 /// Feature template of [Chen and Manning, 2014, EMNLP]
 ///
 /// ## The choice of S^w, S^t, S^l
@@ -343,8 +409,6 @@ pub struct Feature {
 const NUM_CM14_WORD_FEATURES: usize = 18;
 const NUM_CM14_POSTAG_FEATURES: usize = 18;
 const NUM_CM14_LABEL_FEATURES: usize = 12;
-const NUM_CM14_FEATURES: usize =
-    NUM_CM14_WORD_FEATURES + NUM_CM14_POSTAG_FEATURES + NUM_CM14_LABEL_FEATURES;
 const PAD_ID: u32 = U32_MAX - 1024;
 
 impl Feature {
