@@ -208,8 +208,8 @@ struct Train {
     #[structopt(long = "embed", parse(from_os_str))]
     embed_file: Option<PathBuf>,
     /// Learning rate for an optimizer
-    #[structopt(long = "lrate", default_value = "0.001")]
-    learning_rate: f32,
+    #[structopt(long = "lrate")]
+    learning_rate: Option<f32>,
     /// Number of sweeps over the dataset to train
     #[structopt(long = "epoch", default_value = "20")]
     n_epochs: u32,
@@ -252,7 +252,7 @@ main!(|args: Args, context: Context| match args.command {
             c.embed_file.as_ref(),
             c.n_epochs,
             c.batch_size,
-            c.learning_rate,
+            c.learning_rate.unwrap_or(c.system.default_learning_rate()),
             output_path,
             &context.logger,
         )

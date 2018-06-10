@@ -20,6 +20,13 @@ impl System {
             _ => Err(Error::NotFound),
         }
     }
+
+    pub fn default_learning_rate(&self) -> f32 {
+        match *self {
+            System::ChenManning14 => 0.01,
+            System::KiperwasserGoldberg16Transition => 0.001,
+        }
+    }
 }
 
 #[derive(Debug)]
