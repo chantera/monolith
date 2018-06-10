@@ -21,55 +21,70 @@ pub type ParserOutput = (Vec<Option<u32>>, Vec<Option<u32>>);
 #[derive(Debug)]
 pub struct ParserBuilder<'a, M> {
     pub(crate) _model_type: PhantomData<M>,
-    pub(crate) word_vocab_size: usize,
+    pub(crate) word_vocab_size: u32,
     pub(crate) word_embed_size: u32,
     pub(crate) word_embed: Option<&'a Vec<Vec<f32>>>,
-    pub(crate) postag_vocab_size: usize,
+    pub(crate) word_pad_id: Option<u32>,
+    pub(crate) postag_vocab_size: u32,
     pub(crate) postag_embed_size: u32,
-    pub(crate) label_vocab_size: usize,
+    pub(crate) postag_pad_id: Option<u32>,
+    pub(crate) label_vocab_size: u32,
     pub(crate) label_embed_size: u32,
+    pub(crate) label_pad_id: Option<u32>,
+    pub(crate) lstm_hidden_size: u32,
     pub(crate) mlp_unit: u32,
-    pub(crate) out_size: Option<usize>,
+    pub(crate) out_size: Option<u32>,
     pub(crate) dropout_rate: f32,
 }
 
 impl<'a, M> ParserBuilder<'a, M> {
-    pub fn word(mut self, vocab_size: usize, embed_size: u32) -> Self {
+    pub fn word(mut self, vocab_size: u32, embed_size: u32, pad_id: Option<u32>) -> Self {
         self.word_vocab_size = vocab_size;
         self.word_embed_size = embed_size;
+        self.word_pad_id = pad_id;
         self
     }
 
-    pub fn word_embed(mut self, values: &'a Vec<Vec<f32>>) -> Self {
+    pub fn word_embed(mut self, values: &'a Vec<Vec<f32>>, pad_id: Option<u32>) -> Self {
         self.word_embed = Some(values);
+        self.word_pad_id = pad_id;
         self
     }
 
-    pub fn postag(mut self, vocab_size: usize, embed_size: u32) -> Self {
+    pub fn postag(mut self, vocab_size: u32, embed_size: u32, pad_id: Option<u32>) -> Self {
         self.postag_vocab_size = vocab_size;
         self.postag_embed_size = embed_size;
+        self.postag_pad_id = pad_id;
         self
     }
 
-    pub fn label(mut self, vocab_size: usize, embed_size: u32) -> Self {
+    pub fn label(mut self, vocab_size: u32, embed_size: u32, pad_id: Option<u32>) -> Self {
         self.label_vocab_size = vocab_size;
         self.label_embed_size = embed_size;
+        self.label_pad_id = pad_id;
         self
     }
 
-    pub fn dropout(mut self, p: f32) -> Self {
-        self.dropout_rate = p;
+    #[allow(unused)]
+    pub fn lstm(mut self, hidden_size: u32) -> Self {
+        self.lstm_hidden_size = hidden_size;
         self
     }
 
+    #[allow(unused)]
     pub fn mlp(mut self, unit: u32) -> Self {
         self.mlp_unit = unit;
         self
     }
 
-    #[allow(dead_code)]
-    pub fn out(mut self, size: usize) -> Self {
+    pub fn out(mut self, size: u32) -> Self {
         self.out_size = Some(size);
+        self
+    }
+
+    #[allow(unused)]
+    pub fn dropout(mut self, p: f32) -> Self {
+        self.dropout_rate = p;
         self
     }
 }

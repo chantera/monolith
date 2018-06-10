@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 use monolith::app::prelude::*;
 use monolith::utils::primitiv as primitiv_utils;
-use primitiv::{devices, optimizers};
+use primitiv::{devices, optimizers, Optimizer};
 use slog::Logger;
 
 use self::systems::System;
@@ -23,6 +23,7 @@ mod models;
 mod systems;
 
 fn train<P1, P2, P3, P4>(
+    system: System,
     train_file: P1,
     valid_file: Option<P2>,
     embed_file: Option<P3>,
@@ -38,36 +39,34 @@ where
     P3: AsRef<Path>,
     P4: AsRef<Path>,
 {
-    let system = System::ChenManning14;
-    match system {
-        System::ChenManning14 => {
-            let (train_dataset, valid_dataset, preprocessor): (
-                _,
-                _,
-                systems::chen_manning_14::Preprocessor,
-            ) = dataset::load(
+    macro_rules! load_dataset {
+        ($module:ident) => {
+            dataset::load::<systems::$module::Preprocessor, _, _, _, _>(
                 train_file,
                 valid_file,
                 embed_file,
                 save_to.as_ref().map(|path| path.as_ref().to_path_buf()),
                 logger,
-            )?;
-
+            )
+        };
+    }
+    match system {
+        System::ChenManning14 => {
+            let (train_dataset, valid_dataset, preprocessor) = load_dataset!(chen_manning_14)?;
             let builder = {
                 let word_vocab = preprocessor.word_vocab();
                 let mut builder = systems::chen_manning_14::ParserBuilder::default()
-                    .postag(preprocessor.postag_vocab().unwrap().size(), 50)
-                    .label(preprocessor.label_vocab().size(), 50)
-                    .mlp(200)
-                    .dropout(0.5);
+                    .word(word_vocab.size() as u32, 50, None)
+                    .postag(preprocessor.postag_vocab().size() as u32, 50, None)
+                    .label(preprocessor.label_vocab().size() as u32, 50, None);
                 info!(logger, "builder: {:?}", builder);
-                builder = if word_vocab.has_embed() {
-                    builder.word_embed(word_vocab.embed()?)
-                } else {
-                    builder.word(word_vocab.size(), 50)
-                };
+                if word_vocab.has_embed() {
+                    builder = builder.word_embed(word_vocab.embed()?, None)
+                }
                 builder
             };
+            let mut optimizer = optimizers::AdaGrad::new(learning_rate, 1e-8);
+            optimizer.set_weight_decay(1e-8);
 
             let word_pad_id = preprocessor.word_pad_id();
             let postag_pad_id = preprocessor.postag_pad_id();
@@ -76,7 +75,7 @@ where
             models::train(
                 |model, batch, train: bool| {
                     take_cols!((features:0, eval_data:1, actions:2); batch, batch_size);
-                    let ys = model.forward(features, train);
+                    let ys = model.forward(&features, train);
                     let loss = model.loss(&ys, &actions);
                     let accuracy = model.accuracy(&ys, &actions);
                     if !train {
@@ -84,8 +83,8 @@ where
                             eval_data.into_iter().map(|x| x.as_ref().unwrap()).collect();
                         take_cols!((word_ids:0, postag_ids:1, sentences:2); eval_data, batch_size);
                         let predicted_heads_and_labels = model.parse(
-                            word_ids,
-                            postag_ids,
+                            &word_ids,
+                            &postag_ids,
                             word_pad_id,
                             postag_pad_id,
                             label_pad_id,
@@ -102,7 +101,62 @@ where
                     }
                 },
                 builder.build(),
-                optimizers::AdaGrad::new(learning_rate, 1e-8),
+                optimizer,
+                train_dataset,
+                valid_dataset,
+                n_epochs,
+                batch_size,
+                Some(preprocessor.label_vocab()),
+                save_to,
+                logger,
+            )
+        }
+        System::KiperwasserGoldberg16Transition => {
+            let (train_dataset, valid_dataset, preprocessor) =
+                load_dataset!(kiperwasser_goldberg_16_transition)?;
+            let builder = {
+                let word_vocab = preprocessor.word_vocab();
+                let word_pad_id = preprocessor.word_pad_id();
+                let postag_vocab = preprocessor.postag_vocab();
+                let postag_pad_id = preprocessor.postag_pad_id();
+                let mut builder =
+                    systems::kiperwasser_goldberg_16_transition::ParserBuilder::default()
+                        .word(word_vocab.size() as u32, 100, Some(word_pad_id))
+                        .postag(postag_vocab.size() as u32, 25, Some(postag_pad_id))
+                        .out(preprocessor.label_vocab().size() as u32 * 2 + 1);
+                info!(logger, "builder: {:?}", builder);
+                if word_vocab.has_embed() {
+                    builder = builder.word_embed(word_vocab.embed()?, Some(word_pad_id))
+                }
+                builder
+            };
+            let optimizer = optimizers::Adam::new(learning_rate, 0.9, 0.999, 1e-8);
+
+            models::train(
+                |model, mut batch, train: bool| {
+                    sort_batch!(batch);
+                    take_cols!((words:0, postags:1, features:2, sentences:3, actions:4); batch, batch_size);
+                    transpose!(words, postags);
+                    let ys = model.forward(&words, &postags, &features, train);
+                    let loss = model.loss(&ys, &actions);
+                    let accuracy = model.accuracy(&ys, &actions);
+                    if !train {
+                        let predicted_heads_and_labels = model.parse(&words, &postags);
+                        let sentences: Vec<*const _> = sentences
+                            .into_iter()
+                            .map(|x| x.as_ref().unwrap() as *const _)
+                            .collect();
+                        (
+                            loss,
+                            accuracy,
+                            Some((predicted_heads_and_labels, sentences)),
+                        )
+                    } else {
+                        (loss, accuracy, None)
+                    }
+                },
+                builder.build(),
+                optimizer,
                 train_dataset,
                 valid_dataset,
                 n_epochs,
@@ -162,6 +216,9 @@ struct Train {
     /// Directory for saved models
     #[structopt(long = "save", parse(from_os_str))]
     save_to: Option<PathBuf>,
+    /// Parser system
+    #[structopt(long = "system", default_value = "cm14", parse(try_from_str = "System::from_str"))]
+    system: System,
 }
 
 #[derive(StructOpt, Debug)]
@@ -189,6 +246,7 @@ main!(|args: Args, context: Context| match args.command {
         });
         info!(&context.logger, "execute subcommand: {:?}", c);
         train(
+            c.system,
             &c.input,
             c.valid_file.as_ref(),
             c.embed_file.as_ref(),

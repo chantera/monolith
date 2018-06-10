@@ -33,6 +33,10 @@ impl State {
             actions: Vec::with_capacity(capacity),
         }
     }
+
+    pub fn into_arcs(self) -> (Vec<Option<Index>>, Vec<Option<Index>>) {
+        (self.heads, self.labels)
+    }
 }
 
 impl TransitionState for State {
@@ -250,6 +254,10 @@ impl GoldState {
             let state = GoldState { internal: internal };
             Ok((state, features))
         }
+    }
+
+    pub fn into_arcs(self) -> (Vec<Option<Index>>, Vec<Option<Index>>) {
+        self.internal.into_arcs()
     }
 }
 

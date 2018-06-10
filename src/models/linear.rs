@@ -53,3 +53,9 @@ impl Linear {
         XavierUniform::default()
     }
 }
+
+impl Default for Linear {
+    fn default() -> Self {
+        Linear::new(true)
+    }
+}

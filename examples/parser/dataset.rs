@@ -1,5 +1,4 @@
 use std::io::Result as IOResult;
-use std::marker::PhantomData;
 use std::path::Path;
 
 use monolith::dataset::{conll, Dataset, Load, StdLoader};
@@ -11,16 +10,15 @@ use serde::ser::Serialize;
 use slog::Logger;
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Preprocessor<M> {
-    _marker: PhantomData<M>,
-    pub(crate) word_v: Vocab,
-    pub(crate) char_v: Option<Vocab>,
-    pub(crate) postag_v: Option<Vocab>,
-    pub(crate) label_v: Vocab,
+pub struct VocabMapper {
+    word_v: Vocab,
+    char_v: Option<Vocab>,
+    postag_v: Option<Vocab>,
+    label_v: Vocab,
 }
 
-impl<M> Preprocessor<M> {
-    pub(crate) fn from_vocabs(
+impl VocabMapper {
+    pub fn new(
         mut word_v: Vocab,
         mut char_v: Option<Vocab>,
         mut postag_v: Option<Vocab>,
@@ -42,8 +40,7 @@ impl<M> Preprocessor<M> {
         if label_v.has_embed() {
             label_v.init_embed().unwrap();
         }
-        Preprocessor {
-            _marker: PhantomData,
+        VocabMapper {
             word_v,
             char_v,
             postag_v,
@@ -51,18 +48,22 @@ impl<M> Preprocessor<M> {
         }
     }
 
+    #[inline]
     pub fn word_vocab(&self) -> &Vocab {
         &self.word_v
     }
 
+    #[inline]
     pub fn char_vocab(&self) -> Option<&Vocab> {
         self.char_v.as_ref()
     }
 
+    #[inline]
     pub fn postag_vocab(&self) -> Option<&Vocab> {
         self.postag_v.as_ref()
     }
 
+    #[inline]
     pub fn label_vocab(&self) -> &Vocab {
         &self.label_v
     }
@@ -169,5 +170,5 @@ where
         info!(logger, "saving the loader to {} ...", path);
         serialize::write_to(&loader, path, serialize::Format::Json).unwrap();
     }
-    Ok((train_dataset, valid_dataset, loader.dispose()))
+    Ok((train_dataset, valid_dataset, loader.into_preprocessor()))
 }

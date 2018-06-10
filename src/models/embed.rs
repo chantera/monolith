@@ -64,6 +64,14 @@ impl Embed {
         xs.map(move |x| F::pick(&lookup, x.as_ref(), 1))
     }
 
+    pub fn lookup<V: Variable>(&mut self, x: &[u32]) -> V {
+        let mut lookup: V = F::parameter(&mut self.lookup);
+        if !self.update_enabled {
+            lookup = F::stop_gradient(lookup);
+        }
+        F::pick(&lookup, x, 1)
+    }
+
     pub fn embed_size(&self) -> u32 {
         self.lookup.shape().at(0)
     }

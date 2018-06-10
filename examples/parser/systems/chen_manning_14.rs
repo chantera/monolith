@@ -1,17 +1,19 @@
+//! A Fast and Accurate Dependency Parser using Neural Networks
+//! Danqi Chen and Christopher D. Manning, EMNLP, 2014
+//! http://aclweb.org/anthology/D14-1082
+
 use std::f32::NEG_INFINITY as F32_NEG_INFINITY;
 use std::marker::PhantomData;
 use std::u32::MAX as U32_MAX;
 
 use monolith::lang::prelude::*;
 use monolith::models::*;
-use monolith::preprocessing::Preprocess;
-use monolith::preprocessing::Vocab;
+use monolith::preprocessing::{Preprocess, Vocab};
 use monolith::syntax::transition::prelude::*;
 use monolith::syntax::transition::{self, ArcStandard, State};
+use primitiv::functions as F;
 use primitiv::initializers as I;
-use primitiv::node_functions as F;
-use primitiv::Node;
-use primitiv::Parameter;
+use primitiv::{Parameter, Tensor, Variable};
 
 use dataset;
 use models;
@@ -23,7 +25,10 @@ static LABEL_PADDING: &'static str = "<PAD>";
 /// (features, eval_data(word_ids, postag_ids, sentence), actions)
 pub type Sample<T> = (Vec<Feature>, Option<(Vec<u32>, Vec<u32>, T)>, Vec<u32>);
 
-pub type Preprocessor = dataset::Preprocessor<ChenManning14Model>;
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Preprocessor {
+    v_mapper: dataset::VocabMapper,
+}
 
 impl Preprocessor {
     pub fn new(mut word_v: Vocab) -> Self {
@@ -34,19 +39,32 @@ impl Preprocessor {
         let mut label_v = Vocab::with_default_token("dep");
         let pad_id = label_v.add(LABEL_PADDING);
         assert!(pad_id == 1);
-        Self::from_vocabs(word_v, None, Some(postag_v), label_v)
+        let v_mapper = dataset::VocabMapper::new(word_v, None, Some(postag_v), label_v);
+        Preprocessor { v_mapper }
+    }
+
+    pub fn word_vocab(&self) -> &Vocab {
+        self.v_mapper.word_vocab()
     }
 
     pub fn word_pad_id(&self) -> u32 {
-        self.word_v.get(WORD_PADDING)
+        self.word_vocab().get(WORD_PADDING)
+    }
+
+    pub fn postag_vocab(&self) -> &Vocab {
+        self.v_mapper.postag_vocab().unwrap()
     }
 
     pub fn postag_pad_id(&self) -> u32 {
-        self.postag_v.as_ref().unwrap().get(POSTAG_PADDING)
+        self.postag_vocab().get(POSTAG_PADDING)
+    }
+
+    pub fn label_vocab(&self) -> &Vocab {
+        self.v_mapper.label_vocab()
     }
 
     pub fn label_pad_id(&self) -> u32 {
-        self.label_v.get(LABEL_PADDING)
+        self.label_vocab().get(LABEL_PADDING)
     }
 
     /// map a sentence to a feature sequence and an action sequence
@@ -90,7 +108,8 @@ impl<S: Phrasal> Preprocess<S> for Preprocessor {
     type Output = Sample<S>;
 
     fn fit_each(&mut self, x: &S) -> Option<Self::Output> {
-        let (word_ids, _char_ids, postag_ids, label_ids) = self.map_with_fitting(x.tokens());
+        let (word_ids, _char_ids, postag_ids, label_ids) =
+            self.v_mapper.map_with_fitting(x.tokens());
         let heads: Vec<u32> = x.iter().map(|token| token.head().unwrap() as u32).collect();
         let (features, actions) = self.extract_features_and_actions::<<S as Phrasal>::Token>(
             &word_ids,
@@ -103,7 +122,8 @@ impl<S: Phrasal> Preprocess<S> for Preprocessor {
     }
 
     fn transform_each(&self, x: S) -> Self::Output {
-        let (word_ids, _char_ids, postag_ids, label_ids) = self.map_without_fitting(x.tokens());
+        let (word_ids, _char_ids, postag_ids, label_ids) =
+            self.v_mapper.map_without_fitting(x.tokens());
         let heads: Vec<u32> = x.iter().map(|token| token.head().unwrap() as u32).collect();
         let (features, actions) = self.extract_features_and_actions::<<S as Phrasal>::Token>(
             &word_ids,
@@ -131,7 +151,7 @@ pub struct ChenManning14Model {
 }
 
 impl ChenManning14Model {
-    pub fn new(dropout: f32) -> Self {
+    pub fn new(dropout_rate: f32) -> Self {
         ChenManning14Model {
             word_embed: Embed::new(),
             postag_embed: Embed::new(),
@@ -139,86 +159,39 @@ impl ChenManning14Model {
             pw1: Parameter::new(),
             pb1: Parameter::new(),
             pw2: Parameter::new(),
-            dropout_rate: dropout,
+            dropout_rate,
         }
     }
 
-    pub fn init(
+    pub fn init<W: EmbedInitialize>(
         &mut self,
-        word_vocab_size: usize,
-        word_embed_size: u32,
-        postag_vocab_size: usize,
+        word_embed: W,
+        postag_vocab_size: u32,
         postag_embed_size: u32,
-        label_vocab_size: usize,
+        label_vocab_size: u32,
         label_embed_size: u32,
         mlp_unit: u32,
-        out_size: usize,
+        out_size: u32,
     ) {
-        self.word_embed.init(word_vocab_size, word_embed_size);
-        self.word_embed.update_enabled = true;
-        self.init_common(
-            postag_vocab_size,
-            postag_embed_size,
-            label_vocab_size,
-            label_embed_size,
-            mlp_unit,
-            out_size,
-        );
-    }
-
-    pub fn init_by_values<Entries, Values>(
-        &mut self,
-        word_embed: Entries,
-        postag_vocab_size: usize,
-        postag_embed_size: u32,
-        label_vocab_size: usize,
-        label_embed_size: u32,
-        mlp_unit: u32,
-        out_size: usize,
-    ) where
-        Entries: AsRef<[Values]>,
-        Values: AsRef<[f32]>,
-    {
-        self.word_embed.init_by_values(word_embed);
-        self.word_embed.update_enabled = false;
-        self.init_common(
-            postag_vocab_size,
-            postag_embed_size,
-            label_vocab_size,
-            label_embed_size,
-            mlp_unit,
-            out_size,
-        );
-    }
-
-    fn init_common(
-        &mut self,
-        postag_vocab_size: usize,
-        postag_embed_size: u32,
-        label_vocab_size: usize,
-        label_embed_size: u32,
-        mlp_unit: u32,
-        out_size: usize,
-    ) {
-        self.postag_embed.init(postag_vocab_size, postag_embed_size);
-        self.label_embed.init(label_vocab_size, label_embed_size);
+        let initializer = I::Uniform::new(-0.01, 0.01);
+        self.word_embed.init_by(word_embed);
+        self.postag_embed
+            .init_by_initializer(postag_vocab_size, postag_embed_size, &initializer);
+        self.label_embed
+            .init_by_initializer(label_vocab_size, label_embed_size, &initializer);
         let feature_dim = self.word_embed.embed_size() * (NUM_CM14_WORD_FEATURES as u32)
             + postag_embed_size * (NUM_CM14_POSTAG_FEATURES as u32)
             + label_embed_size * (NUM_CM14_LABEL_FEATURES as u32);
         self.pw1
-            .init_by_initializer([mlp_unit, feature_dim], &I::XavierUniform::new(1.0));
+            .init_by_initializer([mlp_unit, feature_dim], &initializer);
         self.pb1
             .init_by_initializer([mlp_unit], &I::Constant::new(0.0));
         self.pw2
-            .init_by_initializer([out_size as u32, mlp_unit], &I::XavierUniform::new(1.0));
+            .init_by_initializer([out_size as u32, mlp_unit], &initializer);
     }
 
-    pub fn forward<FeatureBatch, Features>(&mut self, xs: FeatureBatch, train: bool) -> Node
-    where
-        FeatureBatch: AsRef<[Features]>,
-        Features: AsRef<[Feature]>,
-    {
-        let num_samples = xs.as_ref().iter().fold(0, |sum, x| sum + x.as_ref().len());
+    pub fn forward<V: Variable, FSeq: AsRef<[Feature]>>(&mut self, xs: &[FSeq], train: bool) -> V {
+        let num_samples = xs.iter().fold(0, |sum, x| sum + x.as_ref().len());
         let mut word_ids: Vec<&[u32]> = Vec::with_capacity(num_samples);
         let mut postag_ids: Vec<&[u32]> = Vec::with_capacity(num_samples);
         let mut label_ids: Vec<&[u32]> = Vec::with_capacity(num_samples);
@@ -229,14 +202,13 @@ impl ChenManning14Model {
                 label_ids.push(&feature.labels);
             }
         }
-        let xs_words = self.word_embed.forward(word_ids);
-        let xs_postags = self.postag_embed.forward(postag_ids);
-        let xs_labels = self.label_embed.forward(label_ids);
-        let xs_features: Vec<Node> = xs_words
-            .into_iter()
-            .zip(xs_postags.into_iter())
-            .zip(xs_labels.into_iter())
-            .map(|((x_w, x_p), x_l)| {
+        let xs_words = self.word_embed.forward_iter(word_ids.iter());
+        let xs_postags = self.postag_embed.forward_iter(postag_ids.iter());
+        let xs_labels = self.label_embed.forward_iter(label_ids.iter());
+        let xs_features: Vec<V> = xs_words
+            .zip(xs_postags)
+            .zip(xs_labels)
+            .map(|((x_w, x_p), x_l): ((V, V), V)| {
                 let x = F::batch::concat([
                     F::dropout(x_w, self.dropout_rate, train),
                     F::dropout(x_p, self.dropout_rate, train),
@@ -247,19 +219,15 @@ impl ChenManning14Model {
             })
             .collect();
         let xs_features = F::batch::concat(xs_features);
-        let w1 = F::parameter(&mut self.pw1);
-        let b1 = F::parameter(&mut self.pb1);
-        let w2 = F::parameter(&mut self.pw2);
-        let hs = F::pown(F::matmul(w1, xs_features) + b1, 3);
-        let ys = F::matmul(w2, F::dropout(hs, self.dropout_rate, train));
+        let w1: V = F::parameter(&mut self.pw1);
+        let b1: V = F::parameter(&mut self.pb1);
+        let w2: V = F::parameter(&mut self.pw2);
+        let hs: V = F::pown(F::matmul(w1, xs_features) + b1, 3);
+        let ys: V = F::matmul(w2, F::dropout(hs, self.dropout_rate, train));
         ys
     }
 
-    pub fn loss<ActionBatch, Actions>(&mut self, ys: &Node, ts: ActionBatch) -> Node
-    where
-        ActionBatch: AsRef<[Actions]>,
-        Actions: AsRef<[u32]>,
-    {
+    pub fn loss<V: Variable, Actions: AsRef<[u32]>>(&mut self, ys: &V, ts: &[Actions]) -> V {
         let batch_size = ts.as_ref().len() as u32;
         let mut actions = Vec::with_capacity(ys.shape().batch() as usize);
         ts.as_ref()
@@ -269,11 +237,11 @@ impl ChenManning14Model {
         loss / batch_size
     }
 
-    pub fn accuracy<ActionBatch, Actions>(&mut self, ys: &Node, ts: ActionBatch) -> (u32, u32)
-    where
-        ActionBatch: AsRef<[Actions]>,
-        Actions: AsRef<[u32]>,
-    {
+    pub fn accuracy<V: Variable, Actions: AsRef<[u32]>>(
+        &mut self,
+        ys: &V,
+        ts: &[Actions],
+    ) -> (u32, u32) {
         let mut correct = 0;
         let mut count = 0;
         let ys = ys.argmax(0);
@@ -288,20 +256,14 @@ impl ChenManning14Model {
         (correct, count as u32)
     }
 
-    pub fn parse<WordBatch, PostagBatch, WordIDs, PostagIDs>(
+    pub fn parse<WordIDs: AsRef<[u32]>, PostagIDs: AsRef<[u32]>>(
         &mut self,
-        words: WordBatch,
-        postags: PostagBatch,
+        words: &[WordIDs],
+        postags: &[PostagIDs],
         word_pad_id: u32,
         postag_pad_id: u32,
         label_pad_id: u32,
-    ) -> Vec<models::ParserOutput>
-    where
-        WordBatch: AsRef<[WordIDs]>,
-        PostagBatch: AsRef<[PostagIDs]>,
-        WordIDs: AsRef<[u32]>,
-        PostagIDs: AsRef<[u32]>,
-    {
+    ) -> Vec<models::ParserOutput> {
         let words: Vec<&[u32]> = words.as_ref().into_iter().map(|x| x.as_ref()).collect();
         let postags: Vec<&[u32]> = postags.as_ref().into_iter().map(|x| x.as_ref()).collect();
         let mut states: Vec<(usize, State)> = words
@@ -328,7 +290,7 @@ impl ChenManning14Model {
                     [feature]
                 })
                 .collect();
-            let ys = self.forward(features, false);
+            let ys: Tensor = self.forward(&features, false);
             let num_actions = ys.shape().at(0) as usize;
             let action_scores = ys.to_vector();
             for i in (0..target_states.len()).rev() {
@@ -499,7 +461,7 @@ impl<'a> ParserBuilder<'a> {
         let mut model = ChenManning14Model::new(self.dropout_rate);
         match self.word_embed {
             Some(values) => {
-                model.init_by_values(
+                model.init(
                     values,
                     self.postag_vocab_size,
                     self.postag_embed_size,
@@ -511,8 +473,11 @@ impl<'a> ParserBuilder<'a> {
             }
             None => {
                 model.init(
-                    self.word_vocab_size,
-                    self.word_embed_size,
+                    (
+                        self.word_vocab_size,
+                        self.word_embed_size,
+                        I::Uniform::new(-0.01, 0.01),
+                    ),
                     self.postag_vocab_size,
                     self.postag_embed_size,
                     self.label_vocab_size,
@@ -528,15 +493,19 @@ impl<'a> ParserBuilder<'a> {
 
 impl<'a> Default for ParserBuilder<'a> {
     fn default() -> Self {
-        models::ParserBuilder {
+        ParserBuilder {
             _model_type: PhantomData,
             word_vocab_size: 60000,
             word_embed_size: 50,
             word_embed: None,
+            word_pad_id: None, // unused
             postag_vocab_size: 64,
             postag_embed_size: 50,
+            postag_pad_id: None, // unused
             label_vocab_size: 64,
             label_embed_size: 50,
+            label_pad_id: None,  // unused
+            lstm_hidden_size: 0, // unused
             mlp_unit: 200,
             out_size: None,
             dropout_rate: 0.5,
