@@ -285,10 +285,9 @@ impl ChenManning14Model {
     }
 
     pub fn loss<V: Variable, Actions: AsRef<[u32]>>(&mut self, ys: &V, ts: &[Actions]) -> V {
-        let batch_size = ts.as_ref().len() as u32;
+        let batch_size = ts.len() as u32;
         let mut actions = Vec::with_capacity(ys.shape().batch() as usize);
-        ts.as_ref()
-            .iter()
+        ts.iter()
             .for_each(|t| actions.extend_from_slice(t.as_ref()));
         let loss = F::batch::sum(F::softmax_cross_entropy_with_ids(ys, &actions, 0));
         loss / batch_size
@@ -302,7 +301,7 @@ impl ChenManning14Model {
         let mut correct = 0;
         let mut count = 0;
         let ys = ys.argmax(0);
-        for actions in ts.as_ref() {
+        for actions in ts {
             for t in actions.as_ref() {
                 if ys[count] == *t {
                     correct += 1;
@@ -321,8 +320,8 @@ impl ChenManning14Model {
         postag_pad_id: u32,
         label_pad_id: u32,
     ) -> Vec<models::ParserOutput> {
-        let words: Vec<&[u32]> = words.as_ref().into_iter().map(|x| x.as_ref()).collect();
-        let postags: Vec<&[u32]> = postags.as_ref().into_iter().map(|x| x.as_ref()).collect();
+        let words: Vec<&[u32]> = words.into_iter().map(|x| x.as_ref()).collect();
+        let postags: Vec<&[u32]> = postags.into_iter().map(|x| x.as_ref()).collect();
         let mut states: Vec<(usize, State)> = words
             .iter()
             .map(|x| State::new(x.len() as u32))

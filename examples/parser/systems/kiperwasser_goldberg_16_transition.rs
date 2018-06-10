@@ -207,9 +207,8 @@ impl<V: Variable> BistTransitionModel<V> {
             0,
         )));
         let fs = F::batch::concat(
-            xs.as_ref()
-                .iter()
-                .zip(hs.as_ref())
+            xs.iter()
+                .zip(hs)
                 .map(|(features, vs)| self.populate_feature(features.as_ref(), vs, &pad))
                 .collect::<Vec<V>>(),
         );
@@ -218,10 +217,10 @@ impl<V: Variable> BistTransitionModel<V> {
     }
 
     fn populate_feature(&self, features: &[Feature], hs: &V, pad: &V) -> V {
-        let batch_size = features.as_ref().len();
+        let batch_size = features.len();
         let feature_size = Feature::num_indices();
         let mut ids = Vec::with_capacity(batch_size * feature_size);
-        for f in features.as_ref() {
+        for f in features {
             for index in [f.b0, f.s0, f.s1, f.s2].into_iter() {
                 ids.push(index.map(|i| i + 1).unwrap_or(0));
             }
@@ -250,10 +249,9 @@ impl<V: Variable> BistTransitionModel<V> {
     }
 
     pub fn loss<Actions: AsRef<[u32]>>(&mut self, ys: &V, ts: &[Actions]) -> V {
-        let batch_size = ts.as_ref().len() as u32;
+        let batch_size = ts.len() as u32;
         let mut actions = Vec::with_capacity(ys.shape().batch() as usize);
-        ts.as_ref()
-            .iter()
+        ts.iter()
             .for_each(|t| actions.extend_from_slice(t.as_ref()));
         let loss = F::batch::sum(F::softmax_cross_entropy_with_ids(ys, &actions, 0));
         loss / batch_size
@@ -263,7 +261,7 @@ impl<V: Variable> BistTransitionModel<V> {
         let mut correct = 0;
         let mut count = 0;
         let ys = ys.argmax(0);
-        for actions in ts.as_ref() {
+        for actions in ts {
             for t in actions.as_ref() {
                 if ys[count] == *t {
                     correct += 1;
