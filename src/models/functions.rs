@@ -1,6 +1,26 @@
 use primitiv::functions as F;
 use primitiv::Variable;
 
+pub fn pad_sequence<V: Variable>(xs: Vec<V>, pad_value: f32) -> (V, Vec<usize>) {
+    let shape = xs[0].shape();
+    let batch_size = shape.batch();
+    let mut lengths = Vec::with_capacity(xs.len());
+    let xs_padded: Vec<V> = xs
+        .into_iter()
+        .map(|x| {
+            let n = x.shape().batch();
+            lengths.push(n as usize);
+            if n == batch_size {
+                x
+            } else {
+                let pad: V = F::constant(shape.resize_batch(batch_size - n), pad_value);
+                F::batch::concat([x, pad])
+            }
+        })
+        .collect();
+    (F::concat(xs_padded, 1), lengths)
+}
+
 pub fn transpose_sequence<V: Variable>(xs: Vec<V>) -> Vec<V> {
     let batch_size = xs[0].shape().batch() as usize;
     let mut lengths = vec![xs.len(); batch_size];
