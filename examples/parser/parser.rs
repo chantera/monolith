@@ -142,7 +142,7 @@ where
                     let loss = model.loss(&ys, &actions);
                     let accuracy = model.accuracy(&ys, &actions);
                     if !train {
-                        let predicted_heads_and_labels = model.parse(&words, &postags);
+                        let predicted_heads_and_labels = model.parse_with_cache(&words, &postags);
                         let sentences: Vec<*const _> = sentences
                             .into_iter()
                             .map(|x| x.as_ref().unwrap() as *const _)

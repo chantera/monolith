@@ -130,6 +130,8 @@ pub struct BistTransitionModel<V: Variable> {
     pad_linear: Linear,
     #[primitiv(submodel)]
     mlp: MLP,
+    #[serde(skip)]
+    cache: Option<Vec<V>>,
     dropout_rate: f32,
     word_pad_id: u32,
     postag_pad_id: u32,
@@ -143,6 +145,7 @@ impl<V: Variable> BistTransitionModel<V> {
             bilstm: BiLSTM::new(NUM_BILSTM_LAYERS, dropout_rate),
             pad_linear: Linear::default(),
             mlp: MLP::new(NUM_MLP_LAYERS, Activation::Tanh, dropout_rate),
+            cache: None,
             dropout_rate,
             word_pad_id,
             postag_pad_id,
@@ -246,6 +249,7 @@ impl<V: Variable> BistTransitionModel<V> {
     ) -> V {
         let hs = self.encode(words, postags, train);
         let ys = self.decode(features, &hs, train);
+        self.cache = Some(hs);
         ys
     }
 
@@ -273,12 +277,29 @@ impl<V: Variable> BistTransitionModel<V> {
         (correct, count as u32)
     }
 
+    #[allow(dead_code)]
     pub fn parse<WordIDs: AsRef<[u32]>, PostagIDs: AsRef<[u32]>>(
         &mut self,
         words: &[WordIDs],
         postags: &[PostagIDs],
     ) -> Vec<models::ParserOutput> {
-        let hs = self.encode(&words, &postags, false);
+        self.cache = Some(self.encode(&words, &postags, false)); // updates interal cache
+        self.parse_with_cache(words, postags)
+    }
+
+    /// Parses with cache when available.
+    ///
+    /// This skips BiLSTMs forward computation when their output vectors have been computed.
+    /// Otherwise this computes BiLSTMs output vectors and holds them as cache.
+    pub fn parse_with_cache<WordIDs: AsRef<[u32]>, PostagIDs: AsRef<[u32]>>(
+        &mut self,
+        words: &[WordIDs],
+        postags: &[PostagIDs],
+    ) -> Vec<models::ParserOutput> {
+        if self.cache.is_none() {
+            self.cache = Some(self.encode(&words, &postags, false));
+        }
+        let hs = self.cache.as_ref().unwrap().clone();
         let mut states: Vec<(usize, State)> = hs
             .iter()
             .map(|h| State::new(h.shape().at(0) as u32))
