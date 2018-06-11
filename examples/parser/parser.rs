@@ -166,6 +166,59 @@ where
                 logger,
             )
         }
+        System::DozatManning17 => {
+            let (train_dataset, valid_dataset, preprocessor) = load_dataset!(dozat_manning_17)?;
+            let builder = {
+                let word_vocab = preprocessor.word_vocab();
+                let mut builder = systems::dozat_manning_17::ParserBuilder::default()
+                    .word(word_vocab.size() as u32, 100, None)
+                    .postag(preprocessor.postag_vocab().size() as u32, 100, None)
+                    .label(preprocessor.label_vocab().size() as u32, 0, None);
+                info!(logger, "builder: {:?}", builder);
+                if word_vocab.has_embed() {
+                    builder = builder.word_embed(word_vocab.embed()?, None)
+                }
+                builder
+            };
+            let optimizer = optimizers::Adam::new(learning_rate, 0.9, 0.999, 1e-8);
+
+            models::train(
+                |model, mut batch, train: bool| {
+                    sort_batch!(batch);
+                    take_cols!((words:0, postags:1, sentences:2, ts:3); batch, batch_size);
+                    take_cols!((heads:0, labels:1); ts, batch_size);
+                    transpose!(words, postags);
+                    let ys = model.forward(&words, &postags, train);
+                    let loss = model.loss(&ys.0, &ys.1, &heads, &labels);
+                    let accuracy = model.accuracy(&ys.0, &ys.1, &heads, &labels);
+                    if !train {
+                        let predicted_heads_and_labels: Vec<
+                            models::ParserOutput,
+                        > = vec![];
+                        let sentences: Vec<*const _> = sentences
+                            .into_iter()
+                            .map(|x| x.as_ref().unwrap() as *const _)
+                            .collect();
+                        (
+                            loss,
+                            accuracy,
+                            Some((predicted_heads_and_labels, sentences)),
+                        )
+                    } else {
+                        (loss, accuracy, None)
+                    }
+                },
+                builder.build(),
+                optimizer,
+                train_dataset,
+                valid_dataset,
+                n_epochs,
+                batch_size,
+                Some(preprocessor.label_vocab()),
+                save_to,
+                logger,
+            )
+        }
     }
 }
 

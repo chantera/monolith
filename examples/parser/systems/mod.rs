@@ -2,12 +2,14 @@ use std::error;
 use std::fmt;
 
 pub mod chen_manning_14;
+pub mod dozat_manning_17;
 pub mod kiperwasser_goldberg_16_transition;
 
 #[derive(Debug, Clone, Copy)]
 pub enum System {
     ChenManning14,
     KiperwasserGoldberg16Transition,
+    DozatManning17,
 }
 
 impl System {
@@ -17,6 +19,7 @@ impl System {
             "KiperwasserGoldberg16Transition" | "kg16t" => {
                 Ok(System::KiperwasserGoldberg16Transition)
             }
+            "DozatManning17" | "dm17" => Ok(System::DozatManning17),
             _ => Err(Error::NotFound),
         }
     }
@@ -25,6 +28,7 @@ impl System {
         match *self {
             System::ChenManning14 => 0.01,
             System::KiperwasserGoldberg16Transition => 0.001,
+            System::DozatManning17 => 0.001,
         }
     }
 }

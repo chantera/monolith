@@ -236,8 +236,8 @@ where
         let model_path = format!("{}-parser", path.as_ref().to_str().unwrap());
         let mut c = training::callbacks::Saver::new(&model, &model_path);
         c.set_interval(1);
-        c.save_from(10);
-        c.save_best(true);
+        c.save_from(5);
+        c.save_best(valid_dataset.is_some());
         c
     });
 
