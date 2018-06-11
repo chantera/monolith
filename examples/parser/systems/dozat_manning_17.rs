@@ -13,6 +13,7 @@ use std::marker::PhantomData;
 use monolith::lang::prelude::*;
 use monolith::models::*;
 use monolith::preprocessing::{Preprocess, Vocab};
+use monolith::syntax::graph;
 use primitiv::functions as F;
 use primitiv::{Node, Variable};
 
@@ -272,6 +273,83 @@ impl<V: Variable> DozatManning17Model<V> {
             }
         }
         (correct_heads + correct_labels, count * 2)
+    }
+
+    pub fn parse<WordIDs: AsRef<[u32]>, PostagIDs: AsRef<[u32]>>(
+        &mut self,
+        words: &[WordIDs],
+        postags: &[PostagIDs],
+        algorithm: GraphAlgorithm,
+    ) -> Vec<models::ParserOutput> {
+        let lengths = lengths_from_timestep_wise_batches(words);
+        let ys = self.forward(words, postags, false);
+        let (arc_scores, label_scores) = self.split(&ys.0, &ys.1, &lengths);
+        arc_scores
+            .into_iter()
+            .zip(label_scores.into_iter())
+            .map(|(arc_scores_of_sent, label_scores_of_sent)| {
+                let heads = algorithm.solve(&arc_scores_of_sent);
+                let labels = F::pick(label_scores_of_sent, &heads, 0).argmax(1);
+                let mut heads: Vec<Option<u32>> =
+                    heads.into_iter().map(|head| Some(head)).collect();
+                heads[0] = None;
+                let mut labels: Vec<Option<u32>> =
+                    labels.into_iter().map(|label| Some(label)).collect();
+                labels[0] = None;
+                (heads, labels)
+            })
+            .collect()
+    }
+}
+
+fn lengths_from_timestep_wise_batches<T, B: AsRef<[T]>>(seq: &[B]) -> Vec<usize> {
+    let batch_size = seq[0].as_ref().len();
+    let max_len = seq.len();
+    let mut lengths = Vec::with_capacity(batch_size);
+    let mut batch_index = 0;
+    for (i, ids) in seq.iter().rev().enumerate() {
+        for _ in 0..(ids.as_ref().len() - batch_index) {
+            lengths.push(max_len - i);
+            batch_index += 1;
+        }
+        if batch_index == batch_size {
+            break;
+        }
+    }
+    lengths
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy)]
+pub enum GraphAlgorithm {
+    Simple,
+    ChuLiuEdmonds,
+    None,
+}
+
+impl GraphAlgorithm {
+    pub fn solve<V: Variable>(&self, scores: &V) -> Vec<u32> {
+        match *self {
+            GraphAlgorithm::Simple => {
+                let n = scores.shape().at(0) as usize;
+                let scores = scores.to_vector();
+                let scores: Vec<&[f32]> = scores.chunks(n).collect();
+                graph::simple_spanning_tree(&scores)
+                    .into_iter()
+                    .map(|head| head as u32)
+                    .collect()
+            }
+            GraphAlgorithm::ChuLiuEdmonds => {
+                let n = scores.shape().at(0) as usize;
+                let scores = scores.to_vector();
+                let scores: Vec<&[f32]> = scores.chunks(n).collect();
+                graph::chu_liu_edmonds(&scores)
+                    .into_iter()
+                    .map(|head| head as u32)
+                    .collect()
+            }
+            GraphAlgorithm::None => scores.argmax(0),
+        }
     }
 }
 

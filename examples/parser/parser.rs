@@ -192,9 +192,11 @@ where
                     let loss = model.loss(&ys.0, &ys.1, &heads, &labels);
                     let accuracy = model.accuracy(&ys.0, &ys.1, &heads, &labels);
                     if !train {
-                        let predicted_heads_and_labels: Vec<
-                            models::ParserOutput,
-                        > = vec![];
+                        let predicted_heads_and_labels = model.parse(
+                            &words,
+                            &postags,
+                            systems::dozat_manning_17::GraphAlgorithm::None,
+                        );
                         let sentences: Vec<*const _> = sentences
                             .into_iter()
                             .map(|x| x.as_ref().unwrap() as *const _)

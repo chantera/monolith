@@ -9,6 +9,7 @@ use std::u32::MAX as U32_MAX;
 use monolith::lang::prelude::*;
 use monolith::models::*;
 use monolith::preprocessing::{Preprocess, Vocab};
+use monolith::syntax::projectivize;
 use monolith::syntax::transition::prelude::*;
 use monolith::syntax::transition::{self, ArcStandard, State};
 use primitiv::functions as F;
@@ -78,7 +79,7 @@ impl Preprocessor {
         let word_pad_id = self.word_pad_id();
         let postag_pad_id = self.postag_pad_id();
         let label_pad_id = self.label_pad_id();
-        let heads = transition::projectivize(heads);
+        let heads = projectivize(heads);
         let (state, features) = transition::GoldState::with_feature_extract::<ArcStandard, _, _>(
             &heads,
             &label_ids,

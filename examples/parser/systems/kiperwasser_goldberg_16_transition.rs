@@ -18,6 +18,7 @@ use std::marker::PhantomData;
 use monolith::lang::prelude::*;
 use monolith::models::*;
 use monolith::preprocessing::{Preprocess, Vocab};
+use monolith::syntax::projectivize;
 use monolith::syntax::transition::prelude::*;
 use monolith::syntax::transition::{self, ArcStandard, State}; // TODO(chanetera): use ArcHybrid
 use primitiv::functions as F;
@@ -75,7 +76,7 @@ impl Preprocessor {
         heads: &[u32],
         labels: &[u32],
     ) -> (Vec<Feature>, Vec<u32>) {
-        let heads = transition::projectivize(heads);
+        let heads = projectivize(heads);
         let (state, features) = transition::GoldState::with_feature_extract::<
             transition::ArcStandard,
             _,
