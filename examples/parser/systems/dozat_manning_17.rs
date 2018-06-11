@@ -2,11 +2,11 @@
 //! Timothy Dozat, Christopher D. Manning, ICLR 2017
 //! https://openreview.net/forum?id=Hk95PK9le
 //!
-//!
-//! orthogonal initialization
-//! bucketing
-//! pretrained word vector
-//! unknown words
+//! differences
+//! - orthogonal initialization
+//! - bucketing
+//! - pretrained word vector
+//! - unknown words
 
 use std::marker::PhantomData;
 
@@ -156,7 +156,7 @@ impl<V: Variable> DozatManning17Model<V> {
             .zip(self.postag_embed.forward_iter(postags.iter()))
             .map(|(x_w, x_p): (V, V)| F::concat([dropout(&x_w), dropout(&x_p)], 0))
             .collect();
-        let (hs, _lenghts) = pad_sequence(self.bilstm.forward(xs, None, train), 0.0);
+        let (hs, _lengths) = pad_sequence(self.bilstm.forward(xs, None, train), 0.0);
         let hs_arc_head = F::lrelu(self.arc_head_linear.forward(dropout(&hs)));
         let hs_arc_dep = F::lrelu(self.arc_dep_linear.forward(dropout(&hs)));
         let hs_label_head = F::lrelu(self.label_head_linear.forward(dropout(&hs)));
@@ -172,6 +172,40 @@ impl<V: Variable> DozatManning17Model<V> {
         (hs_arc_scores, hs_label_scores)
     }
 
+    /// split a fixed size Variable along with the batch axis
+    ///
+    /// This reshapes:
+    /// - arc_scores [max_len, max_len] * batch_size
+    ///             -> vec![([len] * len); batch_size]
+    /// - label_scores [max_len, labels, max_len] * batch_size
+    ///             -> vec![([len, labels] * len); batch_size]
+    fn split(&self, arc_scores: &V, label_scores: &V, lengths: &[usize]) -> (Vec<V>, Vec<V>) {
+        let batch_size = lengths.len();
+        let max_len = lengths[0];
+        let arc_iter = F::batch::split(arc_scores, batch_size as u32).into_iter();
+        let label_iter = F::batch::split(label_scores, batch_size as u32).into_iter();
+
+        let mut arc_scores = Vec::with_capacity(batch_size);
+        let mut label_scores = Vec::with_capacity(batch_size);
+        for ((arc_scores_of_sent, label_scores_of_sent), &n) in
+            arc_iter.zip(label_iter).zip(lengths)
+        {
+            arc_scores.push(F::slice(
+                F::batch::concat(&F::split(&arc_scores_of_sent, 1, max_len as u32)[..n]),
+                0,
+                0,
+                n as u32,
+            ));
+            label_scores.push(F::slice(
+                F::batch::concat(&F::split(&label_scores_of_sent, 2, max_len as u32)[..n]),
+                0,
+                0,
+                n as u32,
+            ));
+        }
+        (arc_scores, label_scores)
+    }
+
     pub fn loss<Heads: AsRef<[u32]>, LabelIDs: AsRef<[u32]>>(
         &mut self,
         ys_heads: &V,
@@ -179,49 +213,31 @@ impl<V: Variable> DozatManning17Model<V> {
         ts_heads: &[Heads],
         ts_labels: &[LabelIDs],
     ) -> V {
-        let batch_size = ts_heads.len();
-        let arc_iter = F::batch::split(ys_heads, batch_size as u32)
-            .into_iter()
-            .zip(ts_heads);
-        let label_iter = F::batch::split(ys_labels, batch_size as u32)
-            .into_iter()
-            .zip(ts_labels);
-        let mut arc_loss: Vec<V> = Vec::with_capacity(batch_size);
+        let lengths: Vec<usize> = ts_heads
+            .iter()
+            .map(|t_heads| t_heads.as_ref().len())
+            .collect();
+        let (ys_heads, ys_labels) = self.split(ys_heads, ys_labels, &lengths);
+        let arc_iter = ys_heads.into_iter().zip(ts_heads);
+        let label_iter = ys_labels.into_iter().zip(ts_labels);
+        let mut arc_loss: Vec<V> = Vec::with_capacity(lengths.len());
         let label_loss: Vec<V> = arc_iter
             .zip(label_iter)
             .map(|((y_heads, t_heads), (y_labels, t_labels))| {
-                // println!("y: {}, t: {}", y_heads.shape(), t_heads.as_ref().len());
-                let heads = y_heads.argmax(0);
-                let len = t_heads.as_ref().len();
-
                 arc_loss.push(F::batch::sum(F::softmax_cross_entropy_with_ids(
-                    F::batch::concat(&F::split(y_heads, 1, heads.len() as u32)[..len]),
+                    &y_heads,
                     t_heads.as_ref(),
                     0,
                 )));
-                // println!("arc_loss: {}", arc_loss[arc_loss.len() - 1].shape());
-                let label_scores = F::pick(
-                    F::batch::concat(&F::split(y_labels, 2, heads.len() as u32)[..len]),
-                    &heads[..len],
-                    0,
-                );
-                // println!(
-                //     "y: {}, t: {}",
-                //     label_scores.shape(),
-                //     t_labels.as_ref().len()
-                // );
-                // F::softmax_cross_entropy_with_ids(label_scores, t_labels.as_ref(), 1)
-                let loss = F::batch::sum(F::softmax_cross_entropy_with_ids(
-                    label_scores,
+                F::batch::sum(F::softmax_cross_entropy_with_ids(
+                    F::pick(y_labels, &y_heads.argmax(0), 0),
                     t_labels.as_ref(),
                     1,
-                ));
-                // println!("label_loss: {}", loss.shape());
-                loss
+                ))
             })
             .collect();
         let loss = F::sum_vars(arc_loss) + F::sum_vars(label_loss);
-        loss / (batch_size as u32)
+        loss / (lengths.len() as u32)
     }
 
     pub fn accuracy<Heads: AsRef<[u32]>, LabelIDs: AsRef<[u32]>>(
@@ -231,24 +247,19 @@ impl<V: Variable> DozatManning17Model<V> {
         ts_heads: &[Heads],
         ts_labels: &[LabelIDs],
     ) -> (u32, u32) {
+        let lengths: Vec<usize> = ts_heads
+            .iter()
+            .map(|t_heads| t_heads.as_ref().len())
+            .collect();
+        let (ys_heads, ys_labels) = self.split(ys_heads, ys_labels, &lengths);
+        let arc_iter = ys_heads.into_iter().zip(ts_heads);
+        let label_iter = ys_labels.into_iter().zip(ts_labels);
         let mut correct_heads = 0;
         let mut correct_labels = 0;
         let mut count = 0;
-        let batch_size = ts_heads.len();
-        let arc_iter = F::batch::split(ys_heads, batch_size as u32)
-            .into_iter()
-            .zip(ts_heads);
-        let label_iter = F::batch::split(ys_labels, batch_size as u32)
-            .into_iter()
-            .zip(ts_labels);
         for ((y_heads, t_heads), (y_labels, t_labels)) in arc_iter.zip(label_iter) {
             let heads = y_heads.argmax(0);
-            let len = t_heads.as_ref().len();
-            let labels = F::pick(
-                F::batch::concat(&F::split(y_labels, 2, heads.len() as u32)[..len]),
-                &heads[..len],
-                0,
-            ).argmax(1);
+            let labels = F::pick(y_labels, &heads, 0).argmax(1);
             for (i, (t_head, t_label)) in t_heads.as_ref().iter().zip(t_labels.as_ref()).enumerate()
             {
                 if heads[i] == *t_head {
@@ -259,49 +270,8 @@ impl<V: Variable> DozatManning17Model<V> {
                 }
                 count += 1;
             }
-            // println!(
-            //     "y: {}, t: {}",
-            //     label_scores.argmax(1).len(),
-            //     t_labels.as_ref().len()
-            // );
         }
         (correct_heads + correct_labels, count * 2)
-        // let mut arc_loss: Vec<V> = Vec::with_capacity(batch_size);
-        // let label_loss: Vec<V> = arc_iter
-        //     .zip(label_iter)
-        //     .map(|((y_heads, t_heads), (y_labels, t_labels))| {
-        //         // println!("y: {}, t: {}", y_heads.shape(), t_heads.as_ref().len());
-        //         let heads = y_heads.argmax(0);
-        //         let len = t_heads.as_ref().len();
-        //
-        //         arc_loss.push(F::batch::sum(F::softmax_cross_entropy_with_ids(
-        //             F::batch::concat(&F::split(y_heads, 1, heads.len() as u32)[..len]),
-        //             t_heads.as_ref(),
-        //             0,
-        //         )));
-        //         // println!("arc_loss: {}", arc_loss[arc_loss.len() - 1].shape());
-        //         let label_scores = F::pick(
-        //             F::batch::concat(&F::split(y_labels, 2, heads.len() as u32)[..len]),
-        //             &heads[..len],
-        //             0,
-        //         );
-        //         // println!(
-        //         //     "y: {}, t: {}",
-        //         //     label_scores.shape(),
-        //         //     t_labels.as_ref().len()
-        //         // );
-        //         // F::softmax_cross_entropy_with_ids(label_scores, t_labels.as_ref(), 1)
-        //         let loss = F::batch::sum(F::softmax_cross_entropy_with_ids(
-        //             label_scores,
-        //             t_labels.as_ref(),
-        //             1,
-        //         ));
-        //         // println!("label_loss: {}", loss.shape());
-        //         loss
-        //     })
-        //     .collect();
-        // let loss = F::sum_vars(arc_loss) + F::sum_vars(label_loss);
-        // loss / (batch_size as u32)
     }
 }
 
