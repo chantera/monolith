@@ -275,6 +275,7 @@ impl<V: Variable> DozatManning17Model<V> {
         (correct_heads + correct_labels, count * 2)
     }
 
+    #[allow(dead_code)]
     pub fn parse<WordIDs: AsRef<[u32]>, PostagIDs: AsRef<[u32]>>(
         &mut self,
         words: &[WordIDs],
@@ -283,7 +284,17 @@ impl<V: Variable> DozatManning17Model<V> {
     ) -> Vec<models::ParserOutput> {
         let lengths = lengths_from_timestep_wise_batches(words);
         let ys = self.forward(words, postags, false);
-        let (arc_scores, label_scores) = self.split(&ys.0, &ys.1, &lengths);
+        self.parse_from_scores(&ys.0, &ys.1, &lengths, algorithm)
+    }
+
+    pub fn parse_from_scores(
+        &self,
+        arc_scores: &V,
+        label_scores: &V,
+        lengths: &[usize],
+        algorithm: GraphAlgorithm,
+    ) -> Vec<models::ParserOutput> {
+        let (arc_scores, label_scores) = self.split(arc_scores, label_scores, &lengths);
         arc_scores
             .into_iter()
             .zip(label_scores.into_iter())

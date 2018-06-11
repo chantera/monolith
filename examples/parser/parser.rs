@@ -13,6 +13,7 @@ use std::error::Error;
 use std::path::{Path, PathBuf};
 
 use monolith::app::prelude::*;
+use monolith::lang::Phrasal;
 use monolith::utils::primitiv as primitiv_utils;
 use primitiv::{devices, optimizers, Optimizer};
 use slog::Logger;
@@ -192,15 +193,21 @@ where
                     let loss = model.loss(&ys.0, &ys.1, &heads, &labels);
                     let accuracy = model.accuracy(&ys.0, &ys.1, &heads, &labels);
                     if !train {
-                        let predicted_heads_and_labels = model.parse(
-                            &words,
-                            &postags,
-                            systems::dozat_manning_17::GraphAlgorithm::None,
-                        );
+                        let mut lengths = Vec::with_capacity(sentences.len());
                         let sentences: Vec<*const _> = sentences
                             .into_iter()
-                            .map(|x| x.as_ref().unwrap() as *const _)
+                            .map(|x| {
+                                let s = x.as_ref().unwrap();
+                                lengths.push(s.len());
+                                s as *const _
+                            })
                             .collect();
+                        let predicted_heads_and_labels = model.parse_from_scores(
+                            &ys.0,
+                            &ys.1,
+                            &lengths,
+                            systems::dozat_manning_17::GraphAlgorithm::None,
+                        );
                         (
                             loss,
                             accuracy,
