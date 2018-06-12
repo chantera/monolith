@@ -156,26 +156,23 @@ pub struct Saver<M: Model> {
 }
 
 impl<M: Model> Saver<M> {
-    pub fn new(model: &M, basename: &str) -> Self {
-        Saver::with_base_path(model, utils::path::expandtilde(basename))
-    }
-
-    pub fn with_dir<P: AsRef<Path>>(model: &M, basename: &str, dir: P) -> Self {
-        let mut base_path = utils::path::expandtilde(dir);
-        base_path.push(basename);
-        Saver::with_base_path(model, base_path)
-    }
-
-    fn with_base_path(model: &M, mut base_path: PathBuf) -> Self {
+    pub fn new<P: AsRef<Path>>(model: &M, base_path: P) -> std_io::Result<Self> {
+        let mut base_path = utils::path::expandtilde(base_path);
+        if base_path.is_dir() {
+            return Err(std_io::Error::new(
+                std_io::ErrorKind::Other,
+                "`base_path` must not be directory",
+            ));
+        }
         base_path.set_extension(MODEL_FILE_EXT);
-        Saver {
+        Ok(Saver {
             model: model,
             base_path: base_path,
             interval: 1,
             save_from: 1,
             save_best: false,
             best_accuracy: 0.0,
-        }
+        })
     }
 
     pub fn set_interval(&mut self, interval: u32) {
