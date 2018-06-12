@@ -71,8 +71,12 @@ where
             }
         };
         if let Some(ref path) = save_to.as_ref() {
-            let path = format!("{}-loader.json", path.to_str().unwrap());
-            info!(logger, "saving the loader to {} ...", path);
+            let path = if path.is_dir() {
+                path.join("loader.json")
+            } else {
+                format!("{}-loader.json", path.to_str().unwrap()).into()
+            };
+            info!(logger, "saving the loader to {} ...", path.display());
             serialize::write_to(&loader, path, serialize::Format::Json).unwrap();
         }
         let preprocessor = loader.into_preprocessor();
@@ -105,16 +109,25 @@ where
     optimizer.add_model(&mut model);
 
     // initialize a model saver
-    let saver = save_to.map(|path| {
-        let arch_path = format!("{}-tagger.arch.json", path.to_str().unwrap());
-        serialize::write_to(&model, arch_path, serialize::Format::Json).unwrap();
-        let model_path = format!("{}-tagger", path.to_str().unwrap());
-        let mut c = training::callbacks::Saver::new(&model, &model_path);
-        c.set_interval(1);
-        c.save_from(5);
-        c.save_best(valid_dataset.is_some());
-        c
-    });
+    let saver = match save_to {
+        Some(path) => {
+            let (arch_path, model_path) = if path.is_dir() {
+                (path.join("tagger.arch.json"), path.join("tagger"))
+            } else {
+                (
+                    format!("{}-tagger.arch.json", path.to_str().unwrap()).into(),
+                    format!("{}-tagger", path.to_str().unwrap()).into(),
+                )
+            };
+            serialize::write_to(&model, arch_path, serialize::Format::Json).unwrap();
+            let mut c = training::callbacks::Saver::new(&model, &model_path)?;
+            c.set_interval(1);
+            c.save_from(5);
+            c.save_best(valid_dataset.is_some());
+            Some(c)
+        }
+        None => None,
+    };
 
     // create trainer with a forward function and register callbacks
     let mut trainer =
@@ -149,19 +162,31 @@ pub fn test<P1: AsRef<Path>, P2: AsRef<Path>>(
         let (loader_file, arch_file) = {
             let dir = model_file.as_ref().parent().unwrap().to_str().unwrap();
             let s = model_file.as_ref().file_name().unwrap().to_str().unwrap();
-            let splits: Vec<&str> = s.split('-').take(2).collect();
-            let loader_file = format!("{}/{}-{}-loader.json", dir, splits[0], splits[1]);
-            let arch_file = format!("{}/{}-{}-tagger.arch.json", dir, splits[0], splits[1]);
-            (loader_file, arch_file)
+            match s.rsplitn(2, '-').skip(1).next() {
+                Some(prefix) => (
+                    format!("{}/{}-loader.json", dir, prefix),
+                    format!("{}/{}-tagger.arch.json", dir, prefix),
+                ),
+                None => (
+                    format!("{}/loader.json", dir),
+                    format!("{}/tagger.arch.json", dir),
+                ),
+            }
         };
         info!(logger, "loading the loader from {} ...", loader_file);
-        let mut loader =
-            serialize::read_from::<_, Loader<Preprocessor>>(loader_file, serialize::Format::Json)?;
+        let mut loader: Loader<Preprocessor> =
+            serialize::read_from(loader_file, serialize::Format::Json)?;
 
         info!(logger, "test file: {}", test_file.as_ref().display());
         loader.fix();
         let test_dataset = loader.load(test_file)?;
 
+        info!(
+            logger,
+            "loading the tagger from {} and {} ...",
+            arch_file,
+            model_file.as_ref().display()
+        );
         let mut model: Tagger<Tensor> = serialize::read_from(arch_file, serialize::Format::Json)?;
         model.load(model_file, true)?;
         (test_dataset, model, loader.into_preprocessor())
@@ -171,7 +196,8 @@ pub fn test<P1: AsRef<Path>, P2: AsRef<Path>>(
     let mut overall_loss = 0.0;
     let mut overall_accuracy = training::Accuracy::new(0, 0);
 
-    for mut batch in test_dataset.batch(32, false) {
+    const TEST_BATCH_SIZE: usize = 64;
+    for mut batch in test_dataset.batch(TEST_BATCH_SIZE, false) {
         sort_batch!(batch);
         take_cols!((words:0, chars:1, sentences:2, postags:3); batch, 32);
         transpose!(words, chars, postags);
@@ -197,7 +223,10 @@ pub fn test<P1: AsRef<Path>, P2: AsRef<Path>>(
         overall_loss += loss.to_float();
         overall_accuracy += accuracy;
     }
-    info!(logger, "loss: {}, {}", overall_loss, overall_accuracy);
+    info!(
+        logger,
+        "loss: {}, accuracy: {}", overall_loss, overall_accuracy
+    );
 
     Ok(())
 }
