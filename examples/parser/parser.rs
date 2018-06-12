@@ -23,7 +23,7 @@ mod dataset;
 mod models;
 mod systems;
 
-fn train<P1, P2, P3, P4>(
+pub fn train<P1, P2, P3, P4>(
     system: System,
     train_file: P1,
     valid_file: Option<P2>,
@@ -42,11 +42,17 @@ where
 {
     macro_rules! load_dataset {
         ($module:ident) => {
-            dataset::load::<systems::$module::Preprocessor, _, _, _, _>(
+            dataset::load_train_dataset::<systems::$module::Preprocessor, _, _, _, _>(
                 train_file,
                 valid_file,
                 embed_file,
-                save_to.as_ref().map(|path| path.as_ref().to_path_buf()),
+                save_to.as_ref().map(|path| {
+                    if path.as_ref().is_dir() {
+                        path.as_ref().join("loader.json")
+                    } else {
+                        format!("{}-loader.json", path.as_ref().to_str().unwrap()).into()
+                    }
+                }),
                 logger,
             )
         };
@@ -231,8 +237,66 @@ where
     }
 }
 
-fn test<P: AsRef<Path>>(_file: P) -> Result<(), Box<Error + Send + Sync>> {
-    Ok(())
+pub fn test<P1: AsRef<Path>, P2: AsRef<Path>>(
+    system: System,
+    test_file: P1,
+    model_file: P2,
+    logger: &Logger,
+) -> Result<(), Box<Error + Send + Sync>> {
+    let loader_file = {
+        let dir = model_file.as_ref().parent().unwrap().to_str().unwrap();
+        let s = model_file.as_ref().file_name().unwrap().to_str().unwrap();
+        match s.rsplitn(2, '-').skip(1).next() {
+            Some(prefix) => format!("{}/{}-loader.json", dir, prefix),
+            None => format!("{}/loader.json", dir),
+        }
+    };
+    macro_rules! load_dataset {
+        ($module:ident) => {
+            dataset::load_test_dataset::<systems::$module::Preprocessor, _, _>(
+                test_file,
+                loader_file,
+                logger,
+            )
+        };
+    }
+    match system {
+        System::ChenManning14 => {
+            let (test_dataset, preprocessor) = load_dataset!(chen_manning_14)?;
+
+            let word_pad_id = preprocessor.word_pad_id();
+            let postag_pad_id = preprocessor.postag_pad_id();
+            let label_pad_id = preprocessor.label_pad_id();
+
+            models::test(
+                |model: &mut systems::chen_manning_14::ChenManning14Model, batch| {
+                    take_cols!((features:0, eval_data:1, actions:2); batch);
+                    let ys = model.forward(&features, false);
+                    let loss = model.loss(&ys, &actions);
+                    let accuracy = model.accuracy(&ys, &actions);
+                    let eval_data: Vec<&(Vec<u32>, Vec<u32>, _)> =
+                        eval_data.into_iter().map(|x| x.as_ref().unwrap()).collect();
+                    take_cols!((word_ids:0, postag_ids:1, sentences:2); eval_data);
+                    let predicted_heads_and_labels = model.parse(
+                        &word_ids,
+                        &postag_ids,
+                        word_pad_id,
+                        postag_pad_id,
+                        label_pad_id,
+                    );
+                    let sentences: Vec<*const _> =
+                        sentences.into_iter().map(|x| x as *const _).collect();
+                    (loss, accuracy, (predicted_heads_and_labels, sentences))
+                },
+                test_dataset,
+                model_file,
+                preprocessor.label_vocab(),
+                logger,
+            )
+        }
+        System::KiperwasserGoldberg16Transition => Ok(()),
+        System::DozatManning17 => Ok(()),
+    }
 }
 
 #[derive(StructOpt, Debug)]
@@ -288,9 +352,15 @@ struct Test {
     /// A testing data file
     #[structopt(name = "INPUT", parse(from_os_str))]
     input: PathBuf,
+    /// A model file
+    #[structopt(name = "MODEL", parse(from_os_str))]
+    model: PathBuf,
     /// GPU device ID (negative value indicates CPU)
     #[structopt(long = "device", default_value = "-1")]
     device: i32,
+    /// Parser system
+    #[structopt(long = "system", default_value = "cm14", parse(try_from_str = "System::from_str"))]
+    system: System,
 }
 
 main!(|args: Args, context: Context| match args.command {
@@ -323,6 +393,6 @@ main!(|args: Args, context: Context| match args.command {
         let mut dev = primitiv_utils::select_device(c.device);
         info!(&context.logger, "execute subcommand: {:?}", c);
         devices::set_default(&mut *dev);
-        test(&c.input)
+        test(c.system, &c.input, &c.model, &context.logger)
     }
 });

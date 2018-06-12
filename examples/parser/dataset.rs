@@ -128,7 +128,7 @@ impl VocabMapper {
 
 pub type Loader<'a, P> = StdLoader<Sentence<conll::Token<'a>>, P>;
 
-pub fn load<'a, P, P1, P2, P3, P4>(
+pub fn load_train_dataset<'a, P, P1, P2, P3, P4>(
     train_file: P1,
     valid_file: Option<P2>,
     embed_file: Option<P3>,
@@ -166,9 +166,34 @@ where
         }
     };
     if let Some(ref path) = save_to.as_ref() {
-        let path = format!("{}-loader.json", path.as_ref().to_str().unwrap());
-        info!(logger, "saving the loader to {} ...", path);
+        info!(
+            logger,
+            "saving the loader to {} ...",
+            path.as_ref().display()
+        );
         serialize::write_to(&loader, path, serialize::Format::Json).unwrap();
     }
     Ok((train_dataset, valid_dataset, loader.into_preprocessor()))
+}
+
+pub fn load_test_dataset<'a, P, P1, P2>(
+    test_file: P1,
+    loader_file: P2,
+    logger: &Logger,
+) -> IOResult<(Dataset<P::Output>, P)>
+where
+    P: Preprocess<Sentence<conll::Token<'a>>> + From<Vocab> + Serialize + DeserializeOwned,
+    P1: AsRef<Path>,
+    P2: AsRef<Path>,
+{
+    info!(
+        logger,
+        "loading the loader from {} ...",
+        loader_file.as_ref().display()
+    );
+    let mut loader: Loader<P> = serialize::read_from(loader_file, serialize::Format::Json)?;
+    info!(logger, "test file: {}", test_file.as_ref().display());
+    loader.fix();
+    let test_dataset = loader.load(test_file)?;
+    Ok((test_dataset, loader.into_preprocessor()))
 }

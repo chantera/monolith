@@ -8,8 +8,7 @@ use monolith::io::serialize;
 use monolith::lang::{Phrasal, Tokenized};
 use monolith::preprocessing::Vocab;
 use monolith::training;
-use primitiv::Model;
-use primitiv::Optimizer;
+use primitiv::{Model, Optimizer, Tensor};
 use regex::Regex;
 use serde::de::DeserializeOwned;
 use serde::ser::Serialize;
@@ -211,7 +210,7 @@ impl<S: Phrasal> training::Callback<Option<(Vec<ParserOutput>, Vec<*const S>)>> 
     }
 }
 
-pub fn train<F, FO, S: Phrasal, M, O: Optimizer, T, P: AsRef<Path>>(
+pub fn train<M, F, FO, S: Phrasal, O: Optimizer, T, P: AsRef<Path>>(
     mut forward: F,
     mut model: M,
     mut optimizer: O,
@@ -230,16 +229,28 @@ where
 {
     optimizer.add_model(&mut model);
 
-    let saver = save_to.map(|path| {
-        let arch_path = format!("{}-parser.arch.json", path.as_ref().to_str().unwrap());
-        serialize::write_to(&model, arch_path, serialize::Format::Json).unwrap();
-        let model_path = format!("{}-parser", path.as_ref().to_str().unwrap());
-        let mut c = training::callbacks::Saver::new(&model, &model_path);
-        c.set_interval(1);
-        c.save_from(5);
-        c.save_best(valid_dataset.is_some());
-        c
-    });
+    let saver = match save_to {
+        Some(path) => {
+            let (arch_path, model_path) = if path.as_ref().is_dir() {
+                (
+                    path.as_ref().join("parser.arch.json"),
+                    path.as_ref().join("parser"),
+                )
+            } else {
+                (
+                    format!("{}-parser.arch.json", path.as_ref().to_str().unwrap()).into(),
+                    format!("{}-parser", path.as_ref().to_str().unwrap()).into(),
+                )
+            };
+            serialize::write_to(&model, arch_path, serialize::Format::Json).unwrap();
+            let mut c = training::callbacks::Saver::new(&model, &model_path)?;
+            c.set_interval(1);
+            c.save_from(5);
+            c.save_best(valid_dataset.is_some());
+            Some(c)
+        }
+        None => None,
+    };
 
     let mut trainer =
         training::Trainer::new(optimizer, |batch, train| forward(&mut model, batch, train));
@@ -254,5 +265,56 @@ where
     }
 
     trainer.fit(train_dataset, valid_dataset, n_epochs, batch_size);
+    Ok(())
+}
+
+const TEST_BATCH_SIZE: usize = 64;
+
+pub fn test<M, F, A, S: Phrasal, T, P: AsRef<Path>>(
+    mut forward: F,
+    test_dataset: Dataset<T>,
+    model_file: P,
+    label_vocab: &Vocab,
+    logger: &Logger,
+) -> Result<(), Box<Error + Send + Sync>>
+where
+    F: FnMut(&mut M, Vec<&T>) -> (Tensor, A, (Vec<ParserOutput>, Vec<*const S>)),
+    A: Into<training::Accuracy>,
+    M: Model + Serialize + DeserializeOwned,
+{
+    let arch_file = {
+        let dir = model_file.as_ref().parent().unwrap().to_str().unwrap();
+        let s = model_file.as_ref().file_name().unwrap().to_str().unwrap();
+        match s.rsplitn(2, '-').skip(1).next() {
+            Some(prefix) => format!("{}/{}-parser.arch.json", dir, prefix),
+            None => format!("{}/parser.arch.json", dir),
+        }
+    };
+    info!(
+        logger,
+        "loading the parser from {} and {} ...",
+        arch_file,
+        model_file.as_ref().display()
+    );
+    let mut model: M = serialize::read_from(arch_file, serialize::Format::Json)?;
+    model.load(model_file, true)?;
+    let mut evaluator = Evaluator::new(label_vocab, Rc::new(logger.new(o!())));
+
+    let mut overall_loss = 0.0;
+    let mut overall_accuracy = training::Accuracy::new(0, 0);
+    for mut batch in test_dataset.batch(TEST_BATCH_SIZE, false) {
+        let (loss, accuracy, (outputs, sentences)) = forward(&mut model, batch);
+        for (sentence, (heads, labels)) in sentences.iter().zip(outputs.into_iter()) {
+            let sentence: &S = unsafe { &**sentence };
+            evaluator.evaluate(&heads, &labels, sentence);
+        }
+        overall_loss += loss.to_float();
+        overall_accuracy += accuracy;
+    }
+    info!(
+        logger,
+        "loss: {}, accuracy: {}", overall_loss, overall_accuracy
+    );
+    evaluator.report();
     Ok(())
 }
