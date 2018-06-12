@@ -307,6 +307,19 @@ where
         for (sentence, (heads, labels)) in sentences.iter().zip(outputs.into_iter()) {
             let sentence: &S = unsafe { &**sentence };
             evaluator.evaluate(&heads, &labels, sentence);
+            for (i, token) in sentence.iter().enumerate().skip(1) {
+                print!(
+                    "{}\t{}\t_\t_\t{}\t_\t{}\t{}\t_\t_\n",
+                    i,
+                    token.form(),
+                    token.postag().unwrap(),
+                    heads[i].map(|head| head as i32).unwrap_or(-1),
+                    labels[i]
+                        .map(|label| label_vocab.lookup(label).unwrap())
+                        .unwrap_or("none")
+                );
+            }
+            println!("");
         }
         overall_loss += loss.to_float();
         overall_accuracy += accuracy;
