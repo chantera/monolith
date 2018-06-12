@@ -29,7 +29,7 @@ pub fn serialize<T: Serialize>(data: &T, format: Format) -> std_io::Result<Vec<u
     }
 }
 
-pub fn write_to<P: AsRef<Path>, T: Serialize>(
+pub fn write_to<T: Serialize, P: AsRef<Path>>(
     data: &T,
     path: P,
     format: Format,
@@ -54,7 +54,7 @@ pub fn deserialize<'a, T: Deserialize<'a>>(bytes: &'a [u8], format: Format) -> s
     }
 }
 
-pub fn read_from<P: AsRef<Path>, T: DeserializeOwned>(
+pub fn read_from<T: DeserializeOwned, P: AsRef<Path>>(
     path: P,
     format: Format,
 ) -> std_io::Result<T> {
