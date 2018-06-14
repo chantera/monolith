@@ -118,7 +118,6 @@ impl Bilinear {
         }
     }
 
-    // TODO(chantera): write test
     pub fn forward<V: Variable, X1: AsRef<V>, X2: AsRef<V>>(&mut self, x1: X1, x2: X2) -> V {
         let w: V = F::parameter(&mut self.pw);
         let s = w.shape();
@@ -134,7 +133,7 @@ impl Bilinear {
                 y = F::transpose(y);
                 Some(dims[1])
             } else {
-                debug_assert!(dims.len() == 1);
+                debug_assert!(dims.len() <= 1);
                 None
             }
         };
@@ -148,22 +147,34 @@ impl Bilinear {
             if dims.len() == 2 {
                 Some(dims[1])
             } else {
-                debug_assert!(dims.len() == 1);
+                debug_assert!(dims.len() <= 1);
                 None
             }
         };
         if let Some(n1) = n1 {
             if let Some(n2) = n2 {
                 // [n1, out, n2]
-                y = F::reshape(y, [n1, out_size, n2]);
+                if out_size > 1 {
+                    y = F::reshape(y, [n1, out_size, n2]);
+                } else {
+                    y = F::reshape(y, [n1, n2]);
+                }
             } else {
                 // [n1, out]
-                y = F::reshape(y, [n1, out_size]);
+                if out_size > 1 {
+                    y = F::reshape(y, [n1, out_size]);
+                } else {
+                    y = F::reshape(y, [n1]);
+                }
             }
         } else {
             if let Some(n2) = n2 {
                 // [out, n2]
-                y = F::reshape(y, [out_size, n2]);
+                if out_size > 1 {
+                    y = F::reshape(y, [out_size, n2]);
+                } else {
+                    y = F::reshape(y, [n2]);
+                }
             } else {
                 // [out]
             }
@@ -176,14 +187,22 @@ impl Bilinear {
                 b1 = F::transpose(b1);
                 if let Some(n2) = n2 {
                     // [n1, out, n2] + [n1, out]
-                    b1 = F::broadcast(b1, 2, n2);
+                    if out_size > 1 {
+                        b1 = F::broadcast(b1, 2, n2);
+                    } else {
+                        b1 = F::broadcast(b1, 1, n2);
+                    }
                 } else {
                     // [n1, out] + [n1, out]
                 }
             } else {
                 if let Some(n2) = n2 {
                     // [out, n2] + [out]
-                    b1 = F::broadcast(b1, 1, n2);
+                    if out_size > 1 {
+                        b1 = F::broadcast(b1, 1, n2);
+                    } else {
+                        b1 = F::broadcast(b1, 0, n2);
+                    }
                 } else {
                     // [out] + [out]
                 }
@@ -196,14 +215,23 @@ impl Bilinear {
             if let Some(n1) = n1 {
                 if let Some(n2) = n2 {
                     // [n1, out, n2] + [out, n2]
-                    b2 = F::broadcast(F::reshape(b2, [1, out_size, n2]), 0, n1);
+                    if out_size > 1 {
+                        b2 = F::broadcast(F::reshape(b2, [1, out_size, n2]), 0, n1);
+                    } else {
+                        b2 = F::broadcast(b2, 0, n1);
+                    }
                 } else {
                     // [n1, out] + [out]
                     b2 = F::broadcast(F::reshape(b2, [1, out_size]), 0, n1);
                 }
             } else {
-                if n2.is_some() {
+                if let Some(n2) = n2 {
                     // [out, n2] + [out, n2]
+                    if out_size > 1 {
+                        // pass
+                    } else {
+                        b2 = F::reshape(b2, [n2]);
+                    }
                 } else {
                     // [out] + [out]
                 }
@@ -215,15 +243,28 @@ impl Bilinear {
             if let Some(n1) = n1 {
                 if let Some(n2) = n2 {
                     // [n1, out, n2] + [out]
-                    b = F::broadcast(F::broadcast(F::reshape(b, [1, out_size, 1]), 2, n2), 0, n1);
+                    if out_size > 1 {
+                        b = F::broadcast(F::reshape(b, [1, out_size, 1]), 2, n2);
+                    } else {
+                        b = F::broadcast(b, 1, n2);
+                    }
+                    b = F::broadcast(b, 0, n1);
                 } else {
                     // [n1, out] + [out]
-                    b = F::broadcast(F::reshape(b, [1, out_size]), 0, n1);
+                    if out_size > 1 {
+                        b = F::broadcast(F::reshape(b, [1, out_size]), 0, n1);
+                    } else {
+                        b = F::broadcast(b, 0, n1);
+                    }
                 }
             } else {
                 if let Some(n2) = n2 {
                     // [out, n2] + [out]
-                    b = F::broadcast(b, 0, n2);
+                    if out_size > 1 {
+                        b = F::broadcast(b, 1, n2);
+                    } else {
+                        b = F::broadcast(b, 0, n2);
+                    }
                 } else {
                     // [out] + [out]
                 }
