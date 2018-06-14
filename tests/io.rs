@@ -3,11 +3,8 @@ extern crate monolith;
 extern crate serde_derive;
 extern crate tempfile;
 
-use std::io as std_io;
-
 #[cfg(feature = "app")]
 use monolith::io::cache::Cache;
-use monolith::io::prelude::*;
 #[cfg(feature = "serialize")]
 use monolith::io::serialize;
 
@@ -63,33 +60,14 @@ fn test_serialize() {
     let people = vec![person1, person2, person3];
 
     {
-        let mut serializer = serialize::Serializer::new(vec![], serialize::Format::Json);
-        serializer.write_all(&people).unwrap();
-        serializer.flush().unwrap();
-        let data: Vec<u8> = serializer.inner().iter().map(|&b| b).collect();
-
-        let reader = std_io::BufReader::new(std_io::Cursor::new(data));
-        let mut deserializer =
-            serialize::Serializer::<_, Person>::new(reader, serialize::Format::Json);
-        let mut objs = vec![];
-        deserializer.read_upto(3, &mut objs).unwrap();
-        for (obj, person) in objs.iter().zip(&people) {
-            assert_eq!(obj, person);
-        }
-    }
-    {
-        let mut serializer =
-            serialize::Serializer::new(tempfile::tempfile().unwrap(), serialize::Format::Json);
-        serializer.write_all(&people).unwrap();
-        serializer.flush().unwrap();
-        serializer.seek(std_io::SeekFrom::Start(0)).unwrap();
-
-        let mut objs = vec![];
-        serializer.read_to_end(&mut objs).unwrap();
+        let file = tempfile::NamedTempFile::new().unwrap();
+        serialize::write_to(&people, file.path(), serialize::Format::Json).unwrap();
+        let objs: Vec<Person> = serialize::read_from(file.path(), serialize::Format::Json).unwrap();
         assert_eq!(objs.len(), people.len());
         for (obj, person) in objs.iter().zip(&people) {
             assert_eq!(obj, person);
         }
+        file.close().unwrap();
     }
 }
 
