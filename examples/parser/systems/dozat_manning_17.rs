@@ -168,8 +168,6 @@ impl<V: Variable> DozatManning17Model<V> {
         let hs_label_scores = self
             .label_bilinear
             .forward(dropout(&hs_label_head), dropout(&hs_label_dep));
-        let dims = hs_label_scores.shape().dims();
-        let hs_arc_scores = F::reshape(hs_arc_scores, [dims[0], dims[2]]);
         (hs_arc_scores, hs_label_scores)
     }
 
