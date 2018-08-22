@@ -4,6 +4,7 @@ use std::io::Stderr;
 use std::marker::PhantomData;
 use std::ops;
 use std::rc::Rc;
+use std::time::Instant;
 
 use primitiv::{Graph, Node, Optimizer};
 use slog::Logger;
@@ -89,6 +90,7 @@ pub struct Trainer<'a, O, F, T, U> {
     _sample_type: PhantomData<T>,
     _output_type: PhantomData<U>,
     callbacks: Vec<(u32, usize, String, Box<Callback<U> + 'a>)>,
+    enabled_profiling: bool,
 }
 
 impl<'a, O: Optimizer, F, T, U, FO> Trainer<'a, O, F, T, U>
@@ -103,6 +105,7 @@ where
             _sample_type: PhantomData,
             _output_type: PhantomData,
             callbacks: vec![],
+            enabled_profiling: false,
         }
     }
 
@@ -166,7 +169,19 @@ where
             self.notify(Event::BatchBegin, &info);
 
             g.clear();
-            let ret = (self.forward)(batch, train).into();
+            let ret = if train && self.enabled_profiling {
+                let timer = Instant::now();
+                let ret = (self.forward)(batch, train).into();
+                let elapsed = timer.elapsed();
+                eprintln!(
+                    "[PROFILE] forward computation time:  {:>4}.{:>03}s",
+                    elapsed.as_secs(),
+                    elapsed.subsec_nanos() / 1_000_000
+                );
+                ret
+            } else {
+                (self.forward)(batch, train).into()
+            };
             let (loss, accuracy, output) = (ret.loss, ret.accuracy, ret.other);
             let loss_value = loss.to_float();
             epoch_loss += loss_value;
@@ -174,9 +189,33 @@ where
                 epoch_accuracy += acc;
             }
             if train {
-                self.optimizer.reset_gradients();
-                loss.backward();
-                self.optimizer.update();
+                if self.enabled_profiling {
+                    self.optimizer.reset_gradients();
+                    {
+                        let timer = Instant::now();
+                        loss.backward();
+                        let elapsed = timer.elapsed();
+                        eprintln!(
+                            "[PROFILE] backward computation time: {:>4}.{:>03}s",
+                            elapsed.as_secs(),
+                            elapsed.subsec_nanos() / 1_000_000
+                        );
+                    }
+                    {
+                        let timer = Instant::now();
+                        self.optimizer.update();
+                        let elapsed = timer.elapsed();
+                        eprintln!(
+                            "[PROFILE] update execution time:     {:>4}.{:>03}s",
+                            elapsed.as_secs(),
+                            elapsed.subsec_nanos() / 1_000_000
+                        );
+                    }
+                } else {
+                    self.optimizer.reset_gradients();
+                    loss.backward();
+                    self.optimizer.update();
+                }
             }
 
             info.batch_loss = Some(loss_value);
@@ -286,6 +325,10 @@ where
                     .for_each(|cb| cb.3.on_batch_end(info));
             }
         }
+    }
+
+    pub fn enable_profiling(&mut self) {
+        self.enabled_profiling = true;
     }
 
     pub fn enable_report<L: Into<Rc<Logger>>>(&mut self, logger: L, interval: u32) {
