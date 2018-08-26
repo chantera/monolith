@@ -179,8 +179,13 @@ impl<V: Variable> LSTM<V> {
         out_size: u32,
         initializer: &I,
     ) {
-        for lstm_cell in &mut self.lstm_cells {
+        let mut iter = self.lstm_cells.iter_mut();
+        {
+            let lstm_cell = iter.next().unwrap();
             lstm_cell.init_by_initializer(in_size, out_size, initializer);
+        }
+        for lstm_cell in iter {
+            lstm_cell.init_by_initializer(out_size, out_size, initializer);
         }
     }
 
@@ -207,7 +212,8 @@ impl<V: Variable> LSTM<V> {
         train: bool,
     ) -> Vec<V> {
         let xs = xs.as_ref();
-        self.reset(init_states, xs[0].shape().batch());
+        let batch_size = xs[0].shape().batch().max(xs[xs.len() - 1].shape().batch());
+        self.reset(init_states, batch_size);
         let mut iter = self.lstm_cells.iter_mut();
         let hs = {
             let lstm_cell = iter.next().unwrap();
@@ -238,6 +244,10 @@ impl<V: Variable> LSTM<V> {
 
     pub fn output_size(&self) -> u32 {
         self.lstm_cells[0].output_size()
+    }
+
+    pub fn num_layers(&self) -> usize {
+        self.lstm_cells.len()
     }
 
     pub fn default_initializer() -> impl Initializer {
@@ -365,6 +375,10 @@ impl<V: Variable> BiLSTM<V> {
 
     pub fn output_size(&self) -> u32 {
         self.lstm_cells[0].0.output_size() * 2
+    }
+
+    pub fn num_layers(&self) -> usize {
+        self.lstm_cells.len()
     }
 
     pub fn default_initializer() -> impl Initializer {
