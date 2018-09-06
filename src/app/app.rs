@@ -224,11 +224,14 @@ impl App {
 
         if let Some(ref signal) = receiver {
             let (sdone, rdone) = chan::sync(0);
-            thread::spawn(move || {
-                set_context(&context);
-                sdone.send((*main_fn)(context).map_err(|e| AppError::new(1, e)));
-                let _ = sdone;
-            });
+            thread::Builder::new()
+                .name("monolith::app".to_string())
+                .spawn(move || {
+                    set_context(&context);
+                    sdone.send((*main_fn)(context).map_err(|e| AppError::new(1, e)));
+                    let _ = sdone;
+                })
+                .map_err(|e| AppError::new(1, e))?;
             let mut retval;
             chan_select! {
                 signal.recv() -> s => {
