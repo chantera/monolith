@@ -2,6 +2,8 @@ extern crate libc;
 extern crate rand;
 
 #[cfg(feature = "app")]
+extern crate backtrace;
+#[cfg(feature = "app")]
 #[macro_use]
 extern crate chan;
 #[cfg(feature = "app")]

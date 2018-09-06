@@ -17,7 +17,7 @@ use slog_term::{CompactFormat, Decorator, FullFormat, PlainDecorator, TermDecora
 use utils;
 
 #[cfg(feature = "app")]
-pub use self::app::AppLogger;
+pub use self::app::{enable_log_panic, AppLogger};
 
 #[cfg(feature = "app")]
 mod app;

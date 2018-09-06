@@ -1,9 +1,12 @@
+use std::env;
 use std::fs;
 use std::io::Write;
+use std::panic;
 use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 
+use backtrace::Backtrace;
 use chrono::prelude::*;
 pub use slog::FilterLevel as Level;
 use slog::{Discard, Logger, Record};
@@ -107,4 +110,43 @@ impl Drop for AppLogger {
     fn drop(&mut self) {
         AppLogger::finalize(self);
     }
+}
+
+pub fn enable_log_panic(logger: Logger) {
+    panic::set_hook(Box::new(move |info| {
+        let backtrace = Backtrace::new();
+        let current_thread = thread::current();
+        let thread_name = current_thread.name().unwrap_or("<unnamed>");
+        let message = match info.payload().downcast_ref::<&'static str>() {
+            Some(s) => *s,
+            None => match info.payload().downcast_ref::<String>() {
+                Some(s) => &**s,
+                None => "Box<Any>",
+            },
+        };
+        let loc_str = info
+            .location()
+            .map(|location| {
+                format!(
+                    ", {}:{}:{}",
+                    location.file(),
+                    location.line(),
+                    location.column(),
+                )
+            })
+            .unwrap_or_else(|| "".to_string());
+        error!(
+            logger,
+            "thread '{}' panicked at '{}'{}", thread_name, message, loc_str
+        );
+        let enabled_backtrace = match env::var_os("RUST_BACKTRACE") {
+            Some(ref val) if val != "0" => true,
+            _ => false,
+        };
+        if enabled_backtrace {
+            error!(logger, "{:?}", backtrace);
+        } else {
+            eprintln!("note: Run with `RUST_BACKTRACE=1` for a backtrace.");
+        }
+    }));
 }

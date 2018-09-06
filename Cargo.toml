@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Hiroki Teranishi <teranishihiroki@gmail.com>"]
 
 [dependencies]
+backtrace = { version = "0.3", optional = true }
 chan = { version = "0.1", optional = true }
 chan-signal = { version = "0.3", optional = true }
 chrono = { version = "0.4", optional = true }
@@ -30,7 +31,7 @@ tempfile = "2.2"
 
 [features]
 default = ["app", "logging", "models", "serialize", "training"]
-app = ["chan", "chan-signal", "logging", "serialize", "structopt", "structopt-derive", "uuid"]
+app = ["backtrace", "chan", "chan-signal", "logging", "serialize", "structopt", "structopt-derive", "uuid"]
 dataset-conll = []
 logging = ["chrono", "slog", "slog-async", "slog-term"]
 models = ["primitiv/serialize", "serialize"]
