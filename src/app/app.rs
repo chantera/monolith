@@ -14,7 +14,7 @@ use chrono::{DateTime, Local};
 use libc;
 use slog::Logger;
 
-use logging::{AppLogger, Config as LogConfig};
+use logging::{enable_log_panic, AppLogger, Config as LogConfig};
 use utils;
 
 #[derive(Debug)]
@@ -77,6 +77,7 @@ pub fn get_context<'a>() -> Option<&'a Context> {
 #[derive(Debug, Clone)]
 pub struct Config {
     pub handle_signal: bool,
+    pub log_panic: bool,
     pub exit_on_finish: bool,
     pub logging: LogConfig,
 }
@@ -89,6 +90,7 @@ impl Default for Config {
         log_config.time_format = TIME_FORMAT.to_string();
         Config {
             handle_signal: true,
+            log_panic: true,
             exit_on_finish: false,
             logging: log_config,
         }
@@ -148,7 +150,7 @@ impl App {
             // `notify` must be called before any other threads are spawned in the process.
             self.receiver = Some(chan_signal::notify(&[Signal::INT, Signal::TERM]));
         }
-        match AppLogger::new(self.config.logging.clone()) {
+        let code = match AppLogger::new(self.config.logging.clone()) {
             // an async logger spawns threads internally.
             Ok(logger) => {
                 let context = Context {
@@ -165,7 +167,11 @@ impl App {
                 eprintln!("{}", e);
                 Err(1)
             }
+        };
+        if code.is_ok() && self.config.log_panic {
+            enable_log_panic(self.logger.as_ref().unwrap().create());
         }
+        code
     }
 
     #[inline]
