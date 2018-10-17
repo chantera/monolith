@@ -66,28 +66,34 @@ impl CharCNN {
     where
         IDs: AsRef<[u32]>,
     {
-        let (ids, mask) = pad(xs, self.pad_width as usize, self.pad_id);
-        let out_len = mask.len();
+        let (ids, masks) = pad(xs, self.pad_width as usize, self.pad_id);
+        let batch_size = xs.len() as u32;
+        let out_len = ids[0].len() as u32;
         let xs: Vec<V> = self
             .embed
             .forward_iter(ids.into_iter())
             .map(|x: V| {
                 F::concat(
-                    F::batch::split(F::dropout(x, self.dropout_rate, train), out_len as u32),
+                    F::batch::split(F::dropout(x, self.dropout_rate, train), out_len),
                     1,
                 )
             })
             .collect();
         let hs = self.conv.forward(F::batch::concat(xs));
-        let mask =
-            F::broadcast::<V, _>(F::input([1, out_len as u32, 1], &mask), 2, hs.shape().at(2));
-        let ys = F::flatten(F::max(hs + mask, 1));
+        let masks: Vec<f32> = masks.into_iter().flatten().collect();
+        let masks: V = F::input(([1, out_len, 1], batch_size), &masks);
+        let masks = F::broadcast(masks, 2, hs.shape().at(2));
+        let ys = F::flatten(F::max(hs + masks, 1));
         ys
     }
 }
 
 #[inline]
-fn pad<IDs: AsRef<[u32]>>(xs: &[IDs], pad_width: usize, pad_id: u32) -> (Vec<Vec<u32>>, Vec<f32>) {
+fn pad<IDs: AsRef<[u32]>>(
+    xs: &[IDs],
+    pad_width: usize,
+    pad_id: u32,
+) -> (Vec<Vec<u32>>, Vec<Vec<f32>>) {
     let ids_with_len: Vec<(&[u32], usize)> = xs
         .as_ref()
         .iter()
@@ -96,9 +102,9 @@ fn pad<IDs: AsRef<[u32]>>(xs: &[IDs], pad_width: usize, pad_id: u32) -> (Vec<Vec
             (ids, ids.len())
         })
         .collect();
-
     let max_len = ids_with_len.iter().max_by_key(|x| x.1).unwrap().1;
     let out_len = pad_width + max_len + pad_width;
+    let mut masks: Vec<Vec<f32>> = Vec::with_capacity(out_len);
     let ids: Vec<Vec<u32>> = ids_with_len
         .into_iter()
         .map(|x| {
@@ -110,20 +116,13 @@ fn pad<IDs: AsRef<[u32]>>(xs: &[IDs], pad_width: usize, pad_id: u32) -> (Vec<Vec
             for _ in 0..(max_len - x.1 + pad_width) {
                 padded_ids.push(pad_id);
             }
+            let mut mask = vec![NEG_INFINITY; out_len];
+            for i in pad_width..(pad_width + x.1) {
+                mask[i] = 0.0;
+            }
+            masks.push(mask);
             padded_ids
         })
         .collect();
-
-    let mut mask = Vec::with_capacity(out_len);
-    for _ in 0..pad_width {
-        mask.push(NEG_INFINITY);
-    }
-    for _ in 0..(max_len) {
-        mask.push(0.0);
-    }
-    for _ in 0..pad_width {
-        mask.push(NEG_INFINITY);
-    }
-
-    (ids, mask)
+    (ids, masks)
 }
